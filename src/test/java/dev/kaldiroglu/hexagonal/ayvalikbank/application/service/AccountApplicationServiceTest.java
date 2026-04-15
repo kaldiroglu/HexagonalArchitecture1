@@ -1,0 +1,149 @@
+package dev.kaldiroglu.hexagonal.ayvalikbank.application.service;
+
+import dev.kaldiroglu.hexagonal.ayvalikbank.application.exception.AccountNotFoundException;
+import dev.kaldiroglu.hexagonal.ayvalikbank.application.exception.CustomerNotFoundException;
+import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.*;
+import dev.kaldiroglu.hexagonal.ayvalikbank.domain.port.in.CreateAccountUseCase;
+import dev.kaldiroglu.hexagonal.ayvalikbank.domain.port.in.DepositMoneyUseCase;
+import dev.kaldiroglu.hexagonal.ayvalikbank.domain.port.in.TransferMoneyUseCase;
+import dev.kaldiroglu.hexagonal.ayvalikbank.domain.port.in.WithdrawMoneyUseCase;
+import dev.kaldiroglu.hexagonal.ayvalikbank.domain.port.out.AccountRepositoryPort;
+import dev.kaldiroglu.hexagonal.ayvalikbank.domain.port.out.CustomerRepositoryPort;
+import dev.kaldiroglu.hexagonal.ayvalikbank.domain.port.out.SettingsRepositoryPort;
+import dev.kaldiroglu.hexagonal.ayvalikbank.domain.port.out.TransactionRepositoryPort;
+import dev.kaldiroglu.hexagonal.ayvalikbank.domain.service.TransferDomainService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.math.BigDecimal;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class AccountApplicationServiceTest {
+
+    @Mock private AccountRepositoryPort accountRepository;
+    @Mock private CustomerRepositoryPort customerRepository;
+    @Mock private TransactionRepositoryPort transactionRepository;
+    @Mock private SettingsRepositoryPort settingsRepository;
+
+    private AccountApplicationService service;
+
+    @BeforeEach
+    void setUp() {
+        service = new AccountApplicationService(
+                accountRepository, customerRepository,
+                transactionRepository, settingsRepository,
+                new TransferDomainService());
+    }
+
+    @Test
+    void shouldCreateAccountForExistingCustomer() {
+        CustomerId ownerId = CustomerId.generate();
+        when(customerRepository.existsById(ownerId)).thenReturn(true);
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Account account = service.createAccount(new CreateAccountUseCase.Command(ownerId, Currency.USD));
+
+        assertThat(account.getCurrency()).isEqualTo(Currency.USD);
+        assertThat(account.getOwnerId()).isEqualTo(ownerId);
+        assertThat(account.getBalance()).isEqualTo(Money.zero(Currency.USD));
+    }
+
+    @Test
+    void shouldThrowCustomerNotFoundWhenOwnerMissing() {
+        CustomerId ownerId = CustomerId.generate();
+        when(customerRepository.existsById(ownerId)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.createAccount(
+                new CreateAccountUseCase.Command(ownerId, Currency.EUR)))
+                .isInstanceOf(CustomerNotFoundException.class);
+    }
+
+    @Test
+    void shouldDepositMoneyToAccount() {
+        CustomerId ownerId = CustomerId.generate();
+        Account account = Account.open(ownerId, Currency.USD);
+        AccountId accountId = account.getId();
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(transactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Transaction tx = service.deposit(new DepositMoneyUseCase.Command(accountId, Money.of(200.0, Currency.USD)));
+
+        assertThat(tx.getType()).isEqualTo(TransactionType.DEPOSIT);
+        assertThat(account.getBalance().amount()).isEqualByComparingTo("200.00");
+    }
+
+    @Test
+    void shouldThrowAccountNotFoundOnDepositToMissingAccount() {
+        AccountId id = AccountId.generate();
+        when(accountRepository.findById(id)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.deposit(
+                new DepositMoneyUseCase.Command(id, Money.of(100.0, Currency.USD))))
+                .isInstanceOf(AccountNotFoundException.class);
+    }
+
+    @Test
+    void shouldTransferBetweenAccountsOfSameCustomerFreeOfCharge() {
+        CustomerId ownerId = CustomerId.generate();
+        Account source = Account.open(ownerId, Currency.USD);
+        Account target = Account.open(ownerId, Currency.USD);
+        source.deposit(Money.of(500.0, Currency.USD));
+
+        when(accountRepository.findById(source.getId())).thenReturn(Optional.of(source));
+        when(accountRepository.findById(target.getId())).thenReturn(Optional.of(target));
+        when(settingsRepository.getTransferFeePercent()).thenReturn(new BigDecimal("1.0"));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(transactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.transfer(new TransferMoneyUseCase.Command(
+                source.getId(), target.getId(), Money.of(200.0, Currency.USD)));
+
+        // Same customer — no fee
+        assertThat(source.getBalance().amount()).isEqualByComparingTo("300.00");
+        assertThat(target.getBalance().amount()).isEqualByComparingTo("200.00");
+    }
+
+    @Test
+    void shouldDeductFeeForTransferBetweenDifferentCustomers() {
+        CustomerId owner1 = CustomerId.generate();
+        CustomerId owner2 = CustomerId.generate();
+        Account source = Account.open(owner1, Currency.USD);
+        Account target = Account.open(owner2, Currency.USD);
+        source.deposit(Money.of(1000.0, Currency.USD));
+
+        when(accountRepository.findById(source.getId())).thenReturn(Optional.of(source));
+        when(accountRepository.findById(target.getId())).thenReturn(Optional.of(target));
+        when(settingsRepository.getTransferFeePercent()).thenReturn(new BigDecimal("1.0"));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(transactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.transfer(new TransferMoneyUseCase.Command(
+                source.getId(), target.getId(), Money.of(200.0, Currency.USD)));
+
+        // 200 transferred + 2 fee (1%) = 202 deducted from source
+        assertThat(source.getBalance().amount()).isEqualByComparingTo("798.00");
+        assertThat(target.getBalance().amount()).isEqualByComparingTo("200.00");
+    }
+
+    @Test
+    void shouldThrowOnWithdrawExceedingBalance() {
+        CustomerId ownerId = CustomerId.generate();
+        Account account = Account.open(ownerId, Currency.USD);
+        account.deposit(Money.of(100.0, Currency.USD));
+        when(accountRepository.findById(account.getId())).thenReturn(Optional.of(account));
+
+        assertThatThrownBy(() -> service.withdraw(
+                new WithdrawMoneyUseCase.Command(account.getId(), Money.of(500.0, Currency.USD))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Insufficient");
+    }
+}
