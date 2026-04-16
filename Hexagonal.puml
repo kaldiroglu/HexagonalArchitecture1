@@ -103,7 +103,7 @@ package "« T H E   H E X A G O N »" <<hexagon>> {
 
         package "Entities" <<domain>> {
             class Customer    <<entity>>
-            class Account     <<entity>>
+            class Account     <entity>>
             class Transaction <<entity>>
         }
 

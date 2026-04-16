@@ -6,8 +6,8 @@
 
 ```
                          ┌─────────────────────────┐
-                         │       HTTP Clients       │
-                         │    Admin     Customer    │
+                         │       HTTP Clients      │
+                         │    Admin     Customer   │
                          └────────────┬────────────┘
                                       │  HTTPS / Basic Auth
                     ╔═════════════════╪══════════════════════╗
@@ -38,16 +38,16 @@
                    │       │  GetBalanceUseCase       │       │
                    │       │  GetTransactionsUseCase  │       │
                    │       │  ListAccountsUseCase     │       │
-                   │       └────────────┬────────────┘       │
+                   │       └────────────┬────────────┘        │
                    │                    │  implemented by     │
-                   │       ┌────────────▼────────────┐       │
+                   │       ┌────────────▼────────────┐        │
                    │       │    APPLICATION LAYER     │       │
                    │       │                          │       │
      T H E         │       │ CustomerApplicationSvc   │       │  H E X A G O N
                    │       │ AccountApplicationSvc    │       │
-                   │       └────────────┬────────────┘       │
+                   │       └────────────┬────────────┘        │
                    │                    │  uses               │
-                   │       ┌────────────▼────────────┐       │
+                   │       ┌────────────▼────────────┐        │
                    │       │       DOMAIN LAYER       │       │
                    │       │  ── Entities ──          │       │
                    │       │  Customer                │       │
@@ -61,9 +61,9 @@
                    │       │  ── Domain Services ──   │       │
                    │       │  PasswordValidationSvc   │       │
                    │       │  TransferDomainService   │       │
-                   │       └────────────┬────────────┘       │
+                   │       └────────────┬────────────┘        │
                    │                    │  declares           │
-                   │       ┌────────────▼────────────┐       │
+                   │       ┌────────────▼────────────┐        │
                    │       │        PORTS OUT         │       │
                    │       │  CustomerRepositoryPort  │       │
                    │       │  AccountRepositoryPort   │       │
@@ -76,7 +76,7 @@
                       ╲────────────────────────────────────╱
                                │  implemented by
                     ╔══════════╪═══════════════════════════════╗
-                    ║  OUTBOUND ADAPTERS                        ║
+                    ║  OUTBOUND ADAPTERS                       ║
                     ║  ┌────────────────────┐  ┌────────────┐  ║
                     ║  │ Persistence        │  │ Security   │  ║
                     ║  │ CustomerPersistence│  │ BCrypt     │  ║
@@ -87,7 +87,7 @@
                     ╚════════════╪═══════════════════╪════════╝
                                  │  JDBC / JPA        │ BCrypt
                     ┌────────────▼───────────────┐    │
-                    │        PostgreSQL           │◄───┘
+                    │        PostgreSQL          │◄───┘
                     │  ┌──────────────────────┐  │
                     │  │ customers            │  │
                     │  │ password_history     │  │
