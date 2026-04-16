@@ -1,6 +1,6 @@
 # Domain UML Class Diagrams
 
-Package: `dev.kaldiroglu.hexagonal.ayvalikbank.domain`
+#  Package: `dev.kaldiroglu.hexagonal.ayvalikbank.domain`
 
 --- 
 
