@@ -1,10 +1,9 @@
-# Domain UML Class Diagrams
+---
+title: Domain UML Class Diagrams - Package `dev.kaldiroglu.hexagonal.ayvalikbank.domain`
+---
 
-#  Package: `dev.kaldiroglu.hexagonal.ayvalikbank.domain`
+%% 1. Domain Model — Entities, Value Objects & Enums
 
-## 1. Domain Model — Entities, Value Objects & Enums
-
-```mermaid
 classDiagram
     direction TB
 
@@ -132,14 +131,12 @@ classDiagram
     Transaction "1" --> "1" TransactionType
 
     Money "1" --> "1" Currency
-```
 
----
 
-## 2. Domain Services
+%%---
 
-```mermaid
-classDiagram
+%% 2. Domain Services
+
     direction LR
 
     class PasswordValidationService {
@@ -160,16 +157,15 @@ classDiagram
 
     TransferDomainService ..> Money : returns
     PasswordValidationService ..> IllegalArgumentException : throws
-```
 
----
 
-## 3. Ports In — Use Cases (Driving / Inbound)
+%%---
 
-Each interface contains a nested `Command` record that carries the input data.
+%% 3. Ports In — Use Cases (Driving / Inbound)
 
-```mermaid
-classDiagram
+%%Each interface contains a nested `Command` record that carries the input data.
+
+
     direction TB
 
     class CreateCustomerUseCase {
@@ -274,14 +270,11 @@ classDiagram
         +BigDecimal feePercent
     }
     SetTransferFeeUseCase ..> `SetTransferFeeUseCase.Command`
-```
 
----
+%%---
 
-## 4. Ports Out — Repository & Infrastructure (Driven / Outbound)
+%% 4. Ports Out — Repository & Infrastructure (Driven / Outbound)
 
-```mermaid
-classDiagram
     direction TB
 
     class CustomerRepositoryPort {
@@ -319,14 +312,11 @@ classDiagram
         +getTransferFeePercent() BigDecimal
         +setTransferFeePercent(BigDecimal) void
     }
-```
 
----
+%%---
 
-## 5. Full Domain Overview — Ports, Services & Model Together
+%% 5. Full Domain Overview — Ports, Services & Model Together
 
-```mermaid
-classDiagram
     direction LR
 
     namespace model {
@@ -385,4 +375,3 @@ classDiagram
 
     TransferDomainService ..> Money : uses/returns
     PasswordValidationService ..> Password : validates for
-```
