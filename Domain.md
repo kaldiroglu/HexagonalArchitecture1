@@ -1,0 +1,390 @@
+# Domain UML Class Diagrams
+
+Package: `dev.kaldiroglu.hexagonal.ayvalikbank.domain`
+
+---
+
+## 1. Domain Model — Entities, Value Objects & Enums
+
+```mermaid
+classDiagram
+    direction TB
+
+    class Customer {
+        <<entity>>
+        -CustomerId id
+        -String name
+        -String email
+        -String role
+        -Password currentPassword
+        -List~Password~ passwordHistory
+        +create(name, email, password) Customer$
+        +changePassword(newPassword) void
+        +getAllPasswordsForReuseCheck() List~Password~
+        +getId() CustomerId
+        +getName() String
+        +getEmail() String
+        +getRole() String
+        +getCurrentPassword() Password
+        +getPasswordHistory() List~Password~
+    }
+
+    class Account {
+        <<entity>>
+        -AccountId id
+        -CustomerId ownerId
+        -Currency currency
+        -Money balance
+        +open(ownerId, currency) Account$
+        +deposit(amount) Transaction
+        +withdraw(amount) Transaction
+        +transferOut(amount, fee, targetId) Transaction
+        +transferIn(amount, sourceId) Transaction
+        +getId() AccountId
+        +getOwnerId() CustomerId
+        +getCurrency() Currency
+        +getBalance() Money
+    }
+
+    class Transaction {
+        <<entity>>
+        -TransactionId id
+        -AccountId accountId
+        -TransactionType type
+        -Money amount
+        -LocalDateTime timestamp
+        -String description
+        +create(accountId, type, amount, desc) Transaction$
+        +getId() TransactionId
+        +getAccountId() AccountId
+        +getType() TransactionType
+        +getAmount() Money
+        +getTimestamp() LocalDateTime
+        +getDescription() String
+    }
+
+    class Money {
+        <<record>>
+        +BigDecimal amount
+        +Currency currency
+        +of(amount, currency) Money$
+        +zero(currency) Money$
+        +add(other) Money
+        +subtract(other) Money
+        +multiply(factor) Money
+        +isGreaterThanOrEqualTo(other) boolean
+    }
+
+    class Password {
+        <<record>>
+        +String hashedValue
+        +ofHashed(hashedValue) Password$
+    }
+
+    class CustomerId {
+        <<record>>
+        +UUID value
+        +generate() CustomerId$
+        +of(UUID) CustomerId$
+        +of(String) CustomerId$
+    }
+
+    class AccountId {
+        <<record>>
+        +UUID value
+        +generate() AccountId$
+        +of(UUID) AccountId$
+        +of(String) AccountId$
+    }
+
+    class TransactionId {
+        <<record>>
+        +UUID value
+        +generate() TransactionId$
+        +of(UUID) TransactionId$
+    }
+
+    class Currency {
+        <<enum>>
+        USD
+        EUR
+        TL
+    }
+
+    class TransactionType {
+        <<enum>>
+        DEPOSIT
+        WITHDRAWAL
+        TRANSFER_OUT
+        TRANSFER_IN
+    }
+
+    Customer "1" *-- "1" CustomerId       : id
+    Customer "1" *-- "1" Password         : currentPassword
+    Customer "1" *-- "0..3" Password      : passwordHistory
+
+    Account  "1" *-- "1" AccountId        : id
+    Account  "1" *-- "1" Money            : balance
+    Account  "1" --> "1" CustomerId       : ownerId
+    Account  "1" --> "1" Currency
+
+    Transaction "1" *-- "1" TransactionId : id
+    Transaction "1" *-- "1" Money         : amount
+    Transaction "1" --> "1" AccountId     : accountId
+    Transaction "1" --> "1" TransactionType
+
+    Money "1" --> "1" Currency
+```
+
+---
+
+## 2. Domain Services
+
+```mermaid
+classDiagram
+    direction LR
+
+    class PasswordValidationService {
+        <<service>>
+        +validate(rawPassword) void
+    }
+
+    class TransferDomainService {
+        <<service>>
+        +calculateFee(amount, sameCustomer, feePercent) Money
+    }
+
+    class Money {
+        <<record>>
+        +BigDecimal amount
+        +Currency currency
+    }
+
+    TransferDomainService ..> Money : returns
+    PasswordValidationService ..> IllegalArgumentException : throws
+```
+
+---
+
+## 3. Ports In — Use Cases (Driving / Inbound)
+
+Each interface contains a nested `Command` record that carries the input data.
+
+```mermaid
+classDiagram
+    direction TB
+
+    class CreateCustomerUseCase {
+        <<interface>>
+        +createCustomer(Command) Customer
+    }
+    class `CreateCustomerUseCase.Command` {
+        <<record>>
+        +String name
+        +String email
+        +String rawPassword
+    }
+    CreateCustomerUseCase +-- `CreateCustomerUseCase.Command`
+
+    class DeleteCustomerUseCase {
+        <<interface>>
+        +deleteCustomer(CustomerId) void
+    }
+
+    class ListCustomersUseCase {
+        <<interface>>
+        +listCustomers() List~Customer~
+    }
+
+    class ChangePasswordUseCase {
+        <<interface>>
+        +changePassword(Command) void
+    }
+    class `ChangePasswordUseCase.Command` {
+        <<record>>
+        +CustomerId customerId
+        +String rawNewPassword
+    }
+    ChangePasswordUseCase +-- `ChangePasswordUseCase.Command`
+
+    class CreateAccountUseCase {
+        <<interface>>
+        +createAccount(Command) Account
+    }
+    class `CreateAccountUseCase.Command` {
+        <<record>>
+        +CustomerId ownerId
+        +Currency currency
+    }
+    CreateAccountUseCase +-- `CreateAccountUseCase.Command`
+
+    class DepositMoneyUseCase {
+        <<interface>>
+        +deposit(Command) Transaction
+    }
+    class `DepositMoneyUseCase.Command` {
+        <<record>>
+        +AccountId accountId
+        +Money amount
+    }
+    DepositMoneyUseCase +-- `DepositMoneyUseCase.Command`
+
+    class WithdrawMoneyUseCase {
+        <<interface>>
+        +withdraw(Command) Transaction
+    }
+    class `WithdrawMoneyUseCase.Command` {
+        <<record>>
+        +AccountId accountId
+        +Money amount
+    }
+    WithdrawMoneyUseCase +-- `WithdrawMoneyUseCase.Command`
+
+    class GetBalanceUseCase {
+        <<interface>>
+        +getBalance(AccountId) Money
+    }
+
+    class GetTransactionsUseCase {
+        <<interface>>
+        +getTransactions(AccountId) List~Transaction~
+    }
+
+    class ListAccountsUseCase {
+        <<interface>>
+        +listAccounts(CustomerId) List~Account~
+    }
+
+    class TransferMoneyUseCase {
+        <<interface>>
+        +transfer(Command) void
+    }
+    class `TransferMoneyUseCase.Command` {
+        <<record>>
+        +AccountId sourceAccountId
+        +AccountId targetAccountId
+        +Money amount
+    }
+    TransferMoneyUseCase +-- `TransferMoneyUseCase.Command`
+
+    class SetTransferFeeUseCase {
+        <<interface>>
+        +setTransferFee(Command) void
+    }
+    class `SetTransferFeeUseCase.Command` {
+        <<record>>
+        +BigDecimal feePercent
+    }
+    SetTransferFeeUseCase +-- `SetTransferFeeUseCase.Command`
+```
+
+---
+
+## 4. Ports Out — Repository & Infrastructure (Driven / Outbound)
+
+```mermaid
+classDiagram
+    direction TB
+
+    class CustomerRepositoryPort {
+        <<interface>>
+        +save(Customer) Customer
+        +findById(CustomerId) Optional~Customer~
+        +findByEmail(String) Optional~Customer~
+        +findAll() List~Customer~
+        +deleteById(CustomerId) void
+        +existsById(CustomerId) boolean
+    }
+
+    class AccountRepositoryPort {
+        <<interface>>
+        +save(Account) Account
+        +findById(AccountId) Optional~Account~
+        +findByOwnerId(CustomerId) List~Account~
+        +existsById(AccountId) boolean
+    }
+
+    class TransactionRepositoryPort {
+        <<interface>>
+        +save(Transaction) Transaction
+        +findByAccountId(AccountId) List~Transaction~
+    }
+
+    class PasswordHasherPort {
+        <<interface>>
+        +hash(rawPassword) String
+        +matches(rawPassword, hashedPassword) boolean
+    }
+
+    class SettingsRepositoryPort {
+        <<interface>>
+        +getTransferFeePercent() BigDecimal
+        +setTransferFeePercent(BigDecimal) void
+    }
+```
+
+---
+
+## 5. Full Domain Overview — Ports, Services & Model Together
+
+```mermaid
+classDiagram
+    direction LR
+
+    namespace model {
+        class Customer
+        class Account
+        class Transaction
+        class Money
+        class Password
+        class CustomerId
+        class AccountId
+        class TransactionId
+        class Currency
+        class TransactionType
+    }
+
+    namespace services {
+        class PasswordValidationService
+        class TransferDomainService
+    }
+
+    namespace portsIn {
+        class CreateCustomerUseCase
+        class DeleteCustomerUseCase
+        class ListCustomersUseCase
+        class ChangePasswordUseCase
+        class CreateAccountUseCase
+        class DepositMoneyUseCase
+        class WithdrawMoneyUseCase
+        class GetBalanceUseCase
+        class GetTransactionsUseCase
+        class ListAccountsUseCase
+        class TransferMoneyUseCase
+        class SetTransferFeeUseCase
+    }
+
+    namespace portsOut {
+        class CustomerRepositoryPort
+        class AccountRepositoryPort
+        class TransactionRepositoryPort
+        class PasswordHasherPort
+        class SettingsRepositoryPort
+    }
+
+    CreateCustomerUseCase ..> Customer : returns
+    ListCustomersUseCase  ..> Customer : returns
+    CreateAccountUseCase  ..> Account  : returns
+    ListAccountsUseCase   ..> Account  : returns
+    DepositMoneyUseCase   ..> Transaction : returns
+    WithdrawMoneyUseCase  ..> Transaction : returns
+    GetBalanceUseCase     ..> Money    : returns
+    GetTransactionsUseCase ..> Transaction : returns
+
+    CustomerRepositoryPort ..> Customer : manages
+    AccountRepositoryPort  ..> Account  : manages
+    TransactionRepositoryPort ..> Transaction : manages
+
+    TransferDomainService ..> Money : uses/returns
+    PasswordValidationService ..> Password : validates for
+```
