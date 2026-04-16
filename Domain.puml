@@ -1,0 +1,322 @@
+@startuml Domain
+
+title Ayvalık Bank CC-1 — Domain Layer\ndev.kaldiroglu.hexagonal.ayvalikbank.domain
+
+skinparam packageStyle rectangle
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam linetype ortho
+
+skinparam class {
+    BackgroundColor White
+    BorderColor #555
+    ArrowColor #333
+    FontSize 12
+}
+skinparam stereotype {
+    CBackgroundColor<<entity>>  #DDEEFF
+    CBorderColor<<entity>>      #3366AA
+    CBackgroundColor<<record>>  #EEFFDD
+    CBorderColor<<record>>      #336633
+    CBackgroundColor<<service>> #FFF5CC
+    CBorderColor<<service>>     #AA8800
+}
+
+' ─────────────────────────────────────────
+' PACKAGE: model
+' ─────────────────────────────────────────
+package "domain.model" {
+
+    ' ── Enums ──────────────────────────────
+    enum Currency {
+        USD
+        EUR
+        TL
+    }
+
+    enum TransactionType {
+        DEPOSIT
+        WITHDRAWAL
+        TRANSFER_OUT
+        TRANSFER_IN
+    }
+
+    ' ── Value Objects (records) ─────────────
+    class CustomerId <<record>> {
+        + UUID value
+        --
+        + {static} CustomerId generate()
+        + {static} CustomerId of(UUID)
+        + {static} CustomerId of(String)
+    }
+
+    class AccountId <<record>> {
+        + UUID value
+        --
+        + {static} AccountId generate()
+        + {static} AccountId of(UUID)
+        + {static} AccountId of(String)
+    }
+
+    class TransactionId <<record>> {
+        + UUID value
+        --
+        + {static} TransactionId generate()
+        + {static} TransactionId of(UUID)
+    }
+
+    class Password <<record>> {
+        + String hashedValue
+        --
+        + {static} Password ofHashed(String)
+    }
+
+    class Money <<record>> {
+        + BigDecimal amount
+        + Currency currency
+        --
+        + {static} Money of(BigDecimal, Currency)
+        + {static} Money of(double, Currency)
+        + {static} Money zero(Currency)
+        + Money add(Money)
+        + Money subtract(Money)
+        + Money multiply(BigDecimal)
+        + boolean isGreaterThanOrEqualTo(Money)
+    }
+
+    ' ── Entities ───────────────────────────
+    class Customer <<entity>> {
+        - CustomerId id
+        - String name
+        - String email
+        - String role
+        - Password currentPassword
+        - List<Password> passwordHistory
+        --
+        + {static} Customer create(String name, String email, Password)
+        + void changePassword(Password newPassword)
+        + List<Password> getAllPasswordsForReuseCheck()
+        + CustomerId getId()
+        + String getName()
+        + String getEmail()
+        + String getRole()
+        + Password getCurrentPassword()
+        + List<Password> getPasswordHistory()
+    }
+
+    class Account <<entity>> {
+        - AccountId id
+        - CustomerId ownerId
+        - Currency currency
+        - Money balance
+        --
+        + {static} Account open(CustomerId, Currency)
+        + Transaction deposit(Money amount)
+        + Transaction withdraw(Money amount)
+        + Transaction transferOut(Money amount, Money fee, String targetId)
+        + Transaction transferIn(Money amount, String sourceId)
+        + AccountId getId()
+        + CustomerId getOwnerId()
+        + Currency getCurrency()
+        + Money getBalance()
+    }
+
+    class Transaction <<entity>> {
+        - TransactionId id
+        - AccountId accountId
+        - TransactionType type
+        - Money amount
+        - LocalDateTime timestamp
+        - String description
+        --
+        + {static} Transaction create(AccountId, TransactionType, Money, String)
+        + TransactionId getId()
+        + AccountId getAccountId()
+        + TransactionType getType()
+        + Money getAmount()
+        + LocalDateTime getTimestamp()
+        + String getDescription()
+    }
+
+    ' ── Relationships ───────────────────────
+    Customer  "1" *-right- "1"     CustomerId     : id
+    Customer  "1" *-down-  "1"     Password       : currentPassword
+    Customer  "1" *-down-  "0..3"  Password       : passwordHistory
+
+    Account   "1" *-right- "1"     AccountId      : id
+    Account   "1" *-down-  "1"     Money          : balance
+    Account   "1" o-right- "1"     CustomerId     : ownerId
+    Account   "1" o-right- "1"     Currency
+
+    Transaction "1" *-right- "1"   TransactionId  : id
+    Transaction "1" *-down-  "1"   Money          : amount
+    Transaction "1" o-right- "1"   AccountId      : accountId
+    Transaction "1" o-right- "1"   TransactionType
+
+    Money "1" o-right- "1" Currency
+}
+
+' ─────────────────────────────────────────
+' PACKAGE: domain.service
+' ─────────────────────────────────────────
+package "domain.service" {
+
+    class PasswordValidationService <<service>> {
+        + void validate(String rawPassword)
+    }
+
+    class TransferDomainService <<service>> {
+        + Money calculateFee(Money amount, boolean sameCustomer, BigDecimal feePercent)
+    }
+}
+
+TransferDomainService ..> Money : "returns"
+
+' ─────────────────────────────────────────
+' PACKAGE: domain.port.in  (Use Cases)
+' ─────────────────────────────────────────
+package "domain.port.in" {
+
+    interface CreateCustomerUseCase {
+        + Customer createCustomer(Command)
+        --
+        class Command <<record>>
+        .. Command fields ..
+        name : String
+        email : String
+        rawPassword : String
+    }
+
+    interface DeleteCustomerUseCase {
+        + void deleteCustomer(CustomerId)
+    }
+
+    interface ListCustomersUseCase {
+        + List<Customer> listCustomers()
+    }
+
+    interface ChangePasswordUseCase {
+        + void changePassword(Command)
+        --
+        class Command <<record>>
+        .. Command fields ..
+        customerId : CustomerId
+        rawNewPassword : String
+    }
+
+    interface CreateAccountUseCase {
+        + Account createAccount(Command)
+        --
+        class Command <<record>>
+        .. Command fields ..
+        ownerId : CustomerId
+        currency : Currency
+    }
+
+    interface DepositMoneyUseCase {
+        + Transaction deposit(Command)
+        --
+        class Command <<record>>
+        .. Command fields ..
+        accountId : AccountId
+        amount : Money
+    }
+
+    interface WithdrawMoneyUseCase {
+        + Transaction withdraw(Command)
+        --
+        class Command <<record>>
+        .. Command fields ..
+        accountId : AccountId
+        amount : Money
+    }
+
+    interface GetBalanceUseCase {
+        + Money getBalance(AccountId)
+    }
+
+    interface GetTransactionsUseCase {
+        + List<Transaction> getTransactions(AccountId)
+    }
+
+    interface ListAccountsUseCase {
+        + List<Account> listAccounts(CustomerId)
+    }
+
+    interface TransferMoneyUseCase {
+        + void transfer(Command)
+        --
+        class Command <<record>>
+        .. Command fields ..
+        sourceAccountId : AccountId
+        targetAccountId : AccountId
+        amount : Money
+    }
+
+    interface SetTransferFeeUseCase {
+        + void setTransferFee(Command)
+        --
+        class Command <<record>>
+        .. Command fields ..
+        feePercent : BigDecimal
+    }
+}
+
+' ─────────────────────────────────────────
+' PACKAGE: domain.port.out  (Repository & Infrastructure Ports)
+' ─────────────────────────────────────────
+package "domain.port.out" {
+
+    interface CustomerRepositoryPort {
+        + Customer save(Customer)
+        + Optional<Customer> findById(CustomerId)
+        + Optional<Customer> findByEmail(String)
+        + List<Customer> findAll()
+        + void deleteById(CustomerId)
+        + boolean existsById(CustomerId)
+    }
+
+    interface AccountRepositoryPort {
+        + Account save(Account)
+        + Optional<Account> findById(AccountId)
+        + List<Account> findByOwnerId(CustomerId)
+        + boolean existsById(AccountId)
+    }
+
+    interface TransactionRepositoryPort {
+        + Transaction save(Transaction)
+        + List<Transaction> findByAccountId(AccountId)
+    }
+
+    interface PasswordHasherPort {
+        + String hash(String rawPassword)
+        + boolean matches(String rawPassword, String hashedPassword)
+    }
+
+    interface SettingsRepositoryPort {
+        + BigDecimal getTransferFeePercent()
+        + void setTransferFeePercent(BigDecimal)
+    }
+}
+
+' ─────────────────────────────────────────
+' Cross-package dependencies
+' ─────────────────────────────────────────
+CreateCustomerUseCase  ..> Customer     : "returns"
+ListCustomersUseCase   ..> Customer     : "returns"
+DeleteCustomerUseCase  ..> CustomerId   : "uses"
+ChangePasswordUseCase  ..> CustomerId   : "uses"
+
+CreateAccountUseCase   ..> Account      : "returns"
+ListAccountsUseCase    ..> Account      : "returns"
+DepositMoneyUseCase    ..> Transaction  : "returns"
+WithdrawMoneyUseCase   ..> Transaction  : "returns"
+GetBalanceUseCase      ..> Money        : "returns"
+GetTransactionsUseCase ..> Transaction  : "returns"
+TransferMoneyUseCase   ..> AccountId   : "uses"
+
+CustomerRepositoryPort    ..> Customer    : "manages"
+AccountRepositoryPort     ..> Account     : "manages"
+TransactionRepositoryPort ..> Transaction : "manages"
+
+@enduml
