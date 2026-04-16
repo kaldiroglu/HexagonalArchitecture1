@@ -1,0 +1,238 @@
+@startuml Hexagonal Architecture
+
+title Ayvalık Bank CC-1 — Hexagonal Architecture
+
+left to right direction
+
+skinparam defaultFontSize 11
+skinparam defaultFontName Arial
+skinparam shadowing false
+skinparam linetype polyline
+skinparam packageStyle rectangle
+
+' ── Colour palette ──────────────────────────────────────────────
+skinparam package {
+    BackgroundColor<<inbound>>    #D8E8FF
+    BorderColor<<inbound>>        #2255AA
+    FontColor<<inbound>>          #2255AA
+    BackgroundColor<<outbound>>   #D8F5D8
+    BorderColor<<outbound>>       #226622
+    FontColor<<outbound>>         #226622
+    BackgroundColor<<port_in>>    #EAF3FF
+    BorderColor<<port_in>>        #4488CC
+    BackgroundColor<<port_out>>   #EAFAEA
+    BorderColor<<port_out>>       #44AA44
+    BackgroundColor<<app>>        #FFF8D8
+    BorderColor<<app>>            #AA8800
+    BackgroundColor<<domain>>     #FFE8E8
+    BorderColor<<domain>>         #CC2222
+    BackgroundColor<<hexagon>>    #FFFAF0
+    BorderColor<<hexagon>>        #CC6600
+    FontColor<<hexagon>>          #CC6600
+}
+skinparam component {
+    BackgroundColor<<ctrl>>       #C8DCFF
+    BorderColor<<ctrl>>           #2255AA
+    BackgroundColor<<svc>>        #FFEEBB
+    BorderColor<<svc>>            #AA8800
+    BackgroundColor<<adapter>>    #C8F5C8
+    BorderColor<<adapter>>        #226622
+    BackgroundColor<<security>>   #EEDDFF
+    BorderColor<<security>>       #664488
+}
+skinparam interface {
+    BackgroundColor #FFFFFF
+    BorderColor     #555555
+}
+skinparam database {
+    BackgroundColor #F0F0F0
+    BorderColor     #555555
+}
+
+' ════════════════════════════════════════════════
+' HTTP CLIENTS
+' ════════════════════════════════════════════════
+actor Admin    #D8E8FF
+actor Customer #D8E8FF
+
+' ════════════════════════════════════════════════
+' INBOUND ADAPTERS
+' ════════════════════════════════════════════════
+package "Inbound Adapters" <<inbound>> {
+    component [Security Filter\nBankUserDetailsService] <<security>> as SEC
+    component [AdminController\n/api/admin/**] <<ctrl>> as ADMIN
+    component [CustomerController\n/api/customers/**] <<ctrl>> as CUST
+    component [AccountController\n/api/accounts/**] <<ctrl>> as ACC
+    component [GlobalExceptionHandler] <<ctrl>> as EXC
+}
+
+' ════════════════════════════════════════════════
+' THE HEXAGON
+' ════════════════════════════════════════════════
+package "« T H E   H E X A G O N »" <<hexagon>> {
+
+    ' ── PORTS IN ───────────────────────────────
+    package "Ports In  (Driving / Inbound)" <<port_in>> {
+        interface CreateCustomerUseCase
+        interface DeleteCustomerUseCase
+        interface ListCustomersUseCase
+        interface ChangePasswordUseCase
+        interface SetTransferFeeUseCase
+        interface CreateAccountUseCase
+        interface DepositMoneyUseCase
+        interface WithdrawMoneyUseCase
+        interface GetBalanceUseCase
+        interface GetTransactionsUseCase
+        interface ListAccountsUseCase
+        interface TransferMoneyUseCase
+    }
+
+    ' ── APPLICATION LAYER ───────────────────────
+    package "Application Layer" <<app>> {
+        component [CustomerApplicationService\n@Service  @Transactional] <<svc>> as CSVC
+        component [AccountApplicationService\n@Service  @Transactional] <<svc>> as ASVC
+        note right of CSVC
+          Orchestrates:
+          domain + ports out
+          No business rules
+        end note
+    }
+
+    ' ── DOMAIN LAYER ───────────────────────────
+    package "Domain Layer  (pure Java — no framework)" <<domain>> {
+
+        package "Entities" <<domain>> {
+            class Customer    <<entity>>
+            class Account     <<entity>>
+            class Transaction <<entity>>
+        }
+
+        package "Value Objects" <<domain>> {
+            class Money           <<record>>
+            class Password        <<record>>
+            class CustomerId      <<record>>
+            class AccountId       <<record>>
+            class TransactionId   <<record>>
+            enum  Currency
+            enum  TransactionType
+        }
+
+        package "Domain Services" <<domain>> {
+            class PasswordValidationService <<service>>
+            class TransferDomainService     <<service>>
+        }
+    }
+
+    ' ── PORTS OUT ──────────────────────────────
+    package "Ports Out  (Driven / Outbound)" <<port_out>> {
+        interface CustomerRepositoryPort
+        interface AccountRepositoryPort
+        interface TransactionRepositoryPort
+        interface PasswordHasherPort
+        interface SettingsRepositoryPort
+    }
+}
+
+' ════════════════════════════════════════════════
+' OUTBOUND ADAPTERS
+' ════════════════════════════════════════════════
+package "Outbound Adapters" <<outbound>> {
+    component [CustomerPersistenceAdapter]     <<adapter>> as CP
+    component [AccountPersistenceAdapter]      <<adapter>> as AP
+    component [TransactionPersistenceAdapter]  <<adapter>> as TP
+    component [SettingsPersistenceAdapter]     <<adapter>> as SP
+    component [BCryptPasswordHasherAdapter\n(strength 12)] <<adapter>> as BCRYPT
+}
+
+' ════════════════════════════════════════════════
+' DATABASE
+' ════════════════════════════════════════════════
+database "PostgreSQL\n──────────────────\ncustomers\npassword_history\naccounts\ntransactions\nsettings" as DB
+
+' ════════════════════════════════════════════════
+' CONNECTIONS — INBOUND SIDE
+' ════════════════════════════════════════════════
+Admin    --> SEC  : HTTPS
+Customer --> SEC  : HTTPS
+
+SEC   --> ADMIN
+SEC   --> CUST
+SEC   --> ACC
+
+ADMIN --> CreateCustomerUseCase
+ADMIN --> DeleteCustomerUseCase
+ADMIN --> ListCustomersUseCase
+ADMIN --> SetTransferFeeUseCase
+CUST  --> ChangePasswordUseCase
+ACC   --> CreateAccountUseCase
+ACC   --> DepositMoneyUseCase
+ACC   --> WithdrawMoneyUseCase
+ACC   --> GetBalanceUseCase
+ACC   --> GetTransactionsUseCase
+ACC   --> ListAccountsUseCase
+ACC   --> TransferMoneyUseCase
+
+' ════════════════════════════════════════════════
+' CONNECTIONS — USE CASES → APPLICATION SERVICES
+' ════════════════════════════════════════════════
+CSVC ..|> CreateCustomerUseCase
+CSVC ..|> DeleteCustomerUseCase
+CSVC ..|> ListCustomersUseCase
+CSVC ..|> ChangePasswordUseCase
+CSVC ..|> SetTransferFeeUseCase
+
+ASVC ..|> CreateAccountUseCase
+ASVC ..|> DepositMoneyUseCase
+ASVC ..|> WithdrawMoneyUseCase
+ASVC ..|> GetBalanceUseCase
+ASVC ..|> GetTransactionsUseCase
+ASVC ..|> ListAccountsUseCase
+ASVC ..|> TransferMoneyUseCase
+
+' ════════════════════════════════════════════════
+' CONNECTIONS — APPLICATION → DOMAIN
+' ════════════════════════════════════════════════
+CSVC --> Customer
+CSVC --> PasswordValidationService
+ASVC --> Account
+ASVC --> Transaction
+ASVC --> TransferDomainService
+ASVC --> Money
+
+' ════════════════════════════════════════════════
+' CONNECTIONS — APPLICATION → PORTS OUT
+' ════════════════════════════════════════════════
+CSVC --> CustomerRepositoryPort
+CSVC --> PasswordHasherPort
+CSVC --> SettingsRepositoryPort
+ASVC --> AccountRepositoryPort
+ASVC --> TransactionRepositoryPort
+ASVC --> SettingsRepositoryPort
+
+' ════════════════════════════════════════════════
+' CONNECTIONS — PORTS OUT → OUTBOUND ADAPTERS
+' ════════════════════════════════════════════════
+CP     ..|> CustomerRepositoryPort
+AP     ..|> AccountRepositoryPort
+TP     ..|> TransactionRepositoryPort
+SP     ..|> SettingsRepositoryPort
+BCRYPT ..|> PasswordHasherPort
+
+' ════════════════════════════════════════════════
+' CONNECTIONS — OUTBOUND ADAPTERS → DATABASE
+' ════════════════════════════════════════════════
+CP --> DB
+AP --> DB
+TP --> DB
+SP --> DB
+
+' ════════════════════════════════════════════════
+' DEPENDENCY RULE NOTE
+' ════════════════════════════════════════════════
+note bottom of DB
+  All dependencies point INWARD.
+  Domain Layer imports NOTHING
+  from Spring, JPA, or BCrypt.
+end note
+
+@enduml
