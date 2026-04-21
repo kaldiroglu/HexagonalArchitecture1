@@ -195,4 +195,5 @@ class AccountTest {
         account.transferIn(Money.of(300.0, Currency.USD), "source-id");
         assertThat(account.getBalance().amount()).isEqualByComparingTo("300.00");
     }
+
 }
