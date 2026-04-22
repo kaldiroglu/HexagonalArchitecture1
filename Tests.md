@@ -365,3 +365,200 @@ No real application service or database is involved. The goal is to verify:
 | `UnauthorizedAccessException` | 403 Forbidden | (role check via Spring Security) |
 | `IllegalArgumentException` | 400 Bad Request | domain entity invariant violations |
 | `MethodArgumentNotValidException` | 400 Bad Request | Jakarta Bean Validation failures |
+
+---
+
+## Testing Style Analysis
+
+The three styles are:
+- **Output testing** — assert what a method *returns* (including thrown exceptions)
+- **State testing** — assert how an object's *internal state* changed after an operation
+- **Communication testing** — assert that the SUT *called* a collaborator in the right way (`verify`, `verifyNoInteractions`)
+
+---
+
+### `MoneyTest` — Pure Output Testing
+
+`Money` is an immutable value object. Every operation returns a new `Money` instance, so there is no state to observe and no collaborators to verify. Every test here asserts either a return value or a thrown exception.
+
+```java
+// output: verifies the value returned by add()
+assertThat(a.add(b).amount()).isEqualByComparingTo("150.00");
+
+// output: verifies the exception thrown by subtract()
+assertThatThrownBy(() -> a.subtract(b))
+    .isInstanceOf(IllegalArgumentException.class)
+    .hasMessageContaining("Insufficient");
+```
+
+All 7 tests are output tests. This is the correct style for a value object.
+
+---
+
+### `PasswordValidationServiceTest` — Pure Output Testing
+
+`validate()` returns nothing; its only observable output is whether it throws. All 7 tests verify that contract.
+
+```java
+assertThatNoException().isThrownBy(() -> service.validate("Valid@123"));
+assertThatThrownBy(() -> service.validate("nouppercase1!"))
+    .hasMessageContaining("uppercase");
+```
+
+Pure output style. Correct for a stateless, side-effect-free domain service.
+
+---
+
+### `AccountTest` — State + Output (mixed)
+
+`Account` is a rich entity: it has mutable state and its methods return `Transaction` objects. The tests naturally split across both styles.
+
+**State tests** — call a mutating method, then inspect the entity:
+```java
+// state: status machine transitions
+account.freeze();
+assertThat(account.getStatus()).isEqualTo(AccountStatus.FROZEN);
+
+// state: balance after deposit
+account.deposit(Money.of(500.0, Currency.USD));
+assertThat(account.getBalance().amount()).isEqualByComparingTo("500.00");
+```
+
+**Output tests** — assert the return value or exception:
+```java
+// output: returned Transaction from deposit()
+Transaction tx = account.deposit(Money.of(500.0, Currency.USD));
+assertThat(tx.getType()).isEqualTo(TransactionType.DEPOSIT);
+
+// output: exception from invalid transition
+assertThatThrownBy(account::freeze)
+    .isInstanceOf(IllegalStateException.class)
+    .hasMessageContaining("already frozen");
+```
+
+**Mixed tests** — `shouldDepositAndIncreaseBalance` and `shouldWithdrawAndDecreaseBalance` test both the return value *and* the resulting balance in a single test. That is legitimate since both are part of the same operation contract.
+
+---
+
+### `CustomerTest` — State + Output (mostly state)
+
+Two tests assert the internal state of the password history list after calling `changePassword()` — classic state testing. One test asserts the return value of `getAllPasswordsForReuseCheck()` — output testing.
+
+```java
+// state: history list grows and oldest entry is evicted
+customer.changePassword(Password.ofHashed("hash-4"));
+assertThat(customer.getPasswordHistory()).hasSize(3);
+assertThat(customer.getPasswordHistory().get(0).hashedValue()).isEqualTo("hash-3");
+
+// output: verifies the list returned by getAllPasswordsForReuseCheck()
+var all = customer.getAllPasswordsForReuseCheck();
+assertThat(all).hasSize(3);
+```
+
+---
+
+### `AccountApplicationServiceTest` — All Three Styles
+
+This is where all three styles appear, because the application service has collaborators (ports) that can be observed with `verify`.
+
+**Output tests** (exceptions, returned values):
+```java
+assertThatThrownBy(() -> service.createAccount(...))
+    .isInstanceOf(CustomerNotFoundException.class);
+
+assertThat(tx.getType()).isEqualTo(TransactionType.DEPOSIT);
+```
+
+**State tests** (balance and status on domain objects passed through mocks):
+```java
+// the Account object is real; its state is inspectable after the service acts on it
+assertThat(source.getBalance().amount()).isEqualByComparingTo("798.00");
+assertThat(account.getStatus()).isEqualTo(AccountStatus.FROZEN);
+```
+
+**Communication tests** — but only in one test:
+```java
+// shouldFreezeAccount is the only test that verifies a collaborator call
+verify(accountRepository).save(account);
+```
+
+**Inconsistency**: `shouldUnfreezeAccount` and `shouldCloseAccount` skip the `verify(accountRepository).save(...)` that `shouldFreezeAccount` includes. The service must call `save` in all three cases — that contract is untested for unfreeze and close.
+
+---
+
+### `CustomerApplicationServiceTest` — Output + Communication (mostly)
+
+**Communication tests** — the dominant style here:
+```java
+// pure communication: only asserts the collaborator was called
+service.deleteCustomer(id);
+verify(customerRepository).deleteById(id);
+
+// negative communication: asserts the collaborator was NOT called
+assertThatThrownBy(() -> service.createCustomer(...));
+verifyNoInteractions(customerRepository);
+```
+
+**Mixed output + communication** in `shouldCreateCustomerWithHashedPassword`:
+```java
+assertThat(result.getEmail()).isEqualTo("ali@test.com");        // output
+assertThat(result.getCurrentPassword().hashedValue()).isEqualTo("hashed"); // output
+verify(customerRepository).save(any());                         // communication
+```
+
+**Mixed state + communication** in `shouldChangePasswordSuccessfully`:
+```java
+assertThat(customer.getCurrentPassword().hashedValue()).isEqualTo("new-hash"); // state
+verify(customerRepository).save(customer);                                     // communication
+```
+
+---
+
+### Controller Tests — Output + Negative Communication
+
+The controller tests are overwhelmingly **output tests** at the HTTP protocol layer. The "output" is the HTTP response — status code and JSON body.
+
+```java
+// output: HTTP status and JSON fields
+mockMvc.perform(post("/api/accounts")....)
+    .andExpect(status().isCreated())
+    .andExpect(jsonPath("$.currency").value("USD"))
+    .andExpect(jsonPath("$.balance").value(0));
+```
+
+**Communication tests** appear as positive and negative verification:
+```java
+// positive: use case was invoked
+verify(transferMoney).transfer(any());
+
+// negative: use case was NOT reached because validation failed first
+verifyNoInteractions(createAccount);
+```
+
+The negative communication tests (`verifyNoInteractions`) are important here — they prove that bean-validation failures short-circuit before the use case is called.
+
+---
+
+### Summary Table
+
+| Test class | Output | State | Communication |
+|---|---|---|---|
+| `MoneyTest` | all 7 | — | — |
+| `PasswordValidationServiceTest` | all 7 | — | — |
+| `AccountTest` | ~11 (exceptions + returned Tx) | ~9 (balance, status) | — |
+| `CustomerTest` | 1 | 2 | — |
+| `AccountApplicationServiceTest` | ~6 (exceptions + returned objects) | ~6 (balance, status) | 1 (only `shouldFreezeAccount`) |
+| `CustomerApplicationServiceTest` | ~3 (exceptions) | 1 | ~4 |
+| `AccountControllerTest` | ~15 (HTTP status + JSON) | — | ~5 (verify / verifyNoInteractions) |
+| `AdminControllerTest` | ~15 (HTTP status + JSON) | — | ~4 |
+| `CustomerControllerTest` | ~7 (HTTP status) | — | ~3 |
+
+---
+
+### Notable Issues
+
+**Missing communication tests in `AccountApplicationServiceTest`**: `shouldUnfreezeAccount` and `shouldCloseAccount` verify state but do not verify that `accountRepository.save()` was called. The service contract requires that save — those tests should have a `verify(accountRepository).save(account)` to match `shouldFreezeAccount`.
+
+**`shouldDepositAndIncreaseBalance` mixes state and output correctly**: asserting both the returned `Transaction` and the updated balance is appropriate since both are part of the operation's contract. Not a problem — just worth noting it spans two styles intentionally.
+
+**Domain model tests have no communication tests**: correct, because `Account`, `Customer`, and `Money` have no collaborators. Introducing mocks there would be a design smell.
