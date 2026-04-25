@@ -1,4 +1,4 @@
-# Use Case Flow Diagrams — Ayvalık Bank CC-1
+# Use Case Flow Diagrams — Ayvalık Bank HA-1
 
 Each diagram shows the full call chain from the HTTP client through every architectural layer.
 
@@ -124,7 +124,7 @@ sequenceDiagram
 
 ## 3. DepositMoneyUseCase
 
-Customer deposits money into one of their accounts.
+Customer deposits money into one of their accounts. The persistence adapter reconstructs the correct `Account` subtype (`CheckingAccount`, `SavingsAccount`, or `TimeDepositAccount`) based on the `type` discriminator column; each subtype overrides `deposit` with its own rules. `TimeDepositAccount.deposit` always throws — the application service maps that to HTTP 422.
 
 ```mermaid
 sequenceDiagram
@@ -133,7 +133,8 @@ sequenceDiagram
     participant Security as Security Filter
     participant Ctrl     as AccountController
     participant AppSvc  as AccountApplicationService
-    participant Account as Account (entity)
+    participant Account as Account (subtype)
+    participant State   as AccountState
     participant TxRepo  as TransactionPersistenceAdapter
     participant AccRepo as AccountPersistenceAdapter
     participant DB      as PostgreSQL
@@ -146,12 +147,18 @@ sequenceDiagram
 
     AppSvc->>AccRepo: findById(accountId)
     AccRepo->>DB: SELECT * FROM accounts WHERE id=?
-    DB-->>AccRepo: AccountJpaEntity
-    AccRepo-->>AppSvc: Account{balance, currency}
+    DB-->>AccRepo: AccountJpaEntity{type, balance, ...}
+    Note over AccRepo: mapper switches on type<br/>and constructs the<br/>correct Account subtype
+    AccRepo-->>AppSvc: CheckingAccount / SavingsAccount / TimeDepositAccount
 
     AppSvc->>Account: deposit(Money{amount, currency})
-    Note over Account: validates deposit currency<br/>= account currency<br/>balance = balance + amount
+    Account->>State: requireOperable()
+    Note over State: ActiveState: no-op<br/>FrozenState/ClosedState: throws<br/>IllegalStateException
+    State-->>Account: OK
+    Note over Account: validates currency match,<br/>rejects negative amount,<br/>balance = balance + amount<br/>(TimeDepositAccount.deposit<br/>always throws "locked")
     Account-->>AppSvc: Transaction{DEPOSIT, amount, timestamp}
+
+    Note over AppSvc: try { account.deposit(...) }<br/>catch IllegalStateException<br/>→ InvalidAccountOperationException (HTTP 422)
 
     AppSvc->>AccRepo: save(account)
     AccRepo->>DB: UPDATE accounts SET balance=?
@@ -169,7 +176,7 @@ sequenceDiagram
 
 ## 4. TransferMoneyUseCase
 
-The most complex flow. Customer transfers money between accounts. Fee is 0% for same-customer transfers; admin-configured % for cross-customer transfers.
+The most complex flow. Customer transfers money between accounts. Fee is 0% for same-customer transfers; admin-configured % for cross-customer transfers. The source account's `transferOut` follows subtype-specific rules: `CheckingAccount` allows the balance to go negative down to `-overdraftLimit`; `SavingsAccount` rejects any overdraw; `TimeDepositAccount` always throws ("transfers not supported"). Any `IllegalStateException` is wrapped by the service as `InvalidAccountOperationException` (HTTP 422).
 
 ```mermaid
 sequenceDiagram
@@ -310,7 +317,7 @@ sequenceDiagram
 
 ## 7. FreezeAccountUseCase
 
-Admin freezes an account. The state transition lives entirely in the `Account` domain entity.
+Admin freezes an account. The state transition is implemented with the **State pattern** — `Account.freeze()` is a one-line delegation to `state.freeze()`, which returns the new state instance (or throws if the transition is invalid).
 
 ```mermaid
 sequenceDiagram
@@ -320,6 +327,7 @@ sequenceDiagram
     participant Ctrl     as AdminController
     participant AppSvc  as AccountApplicationService
     participant Account as Account (entity)
+    participant State   as AccountState (current)
     participant AccRepo as AccountPersistenceAdapter
     participant DB      as PostgreSQL
 
@@ -331,14 +339,20 @@ sequenceDiagram
 
     AppSvc->>AccRepo: findById(accountId)
     AccRepo->>DB: SELECT * FROM accounts WHERE id=?
-    DB-->>AccRepo: AccountJpaEntity{status=ACTIVE, ...}
-    AccRepo-->>AppSvc: Account domain object
+    DB-->>AccRepo: AccountJpaEntity{status='ACTIVE', ...}
+    Note over AccRepo: mapper passes status to<br/>Account constructor, which<br/>calls AccountState.of(ACTIVE)<br/>→ ActiveState.INSTANCE
+    AccRepo-->>AppSvc: Account{state = ActiveState.INSTANCE}
 
     AppSvc->>Account: freeze()
-    Note over Account: guards: status must be ACTIVE<br/>throws IllegalStateException<br/>if FROZEN or CLOSED<br/>sets status = FROZEN
-    Account-->>AppSvc: (status updated in memory)
+    Account->>State: freeze()
+    Note over State: ActiveState.freeze()<br/>returns FrozenState.INSTANCE<br/><br/>FrozenState.freeze() throws<br/>"already frozen"<br/><br/>ClosedState.freeze() throws<br/>"cannot freeze closed"
+    State-->>Account: FrozenState.INSTANCE
+    Note over Account: this.state = new state
+
+    Note over AppSvc: try { account.freeze() }<br/>catch IllegalStateException<br/>→ AccountNotOperableException (HTTP 422)
 
     AppSvc->>AccRepo: save(account)
+    Note over AccRepo: getStatus() reads<br/>state.status() = FROZEN
     AccRepo->>DB: UPDATE accounts SET status='FROZEN' WHERE id=?
     DB-->>AccRepo: OK
 
@@ -346,6 +360,146 @@ sequenceDiagram
     Ctrl-->>Admin: 200 OK
 ```
 
-> **Unfreeze** (`PUT /api/admin/accounts/{id}/unfreeze`) follows the same flow with `account.unfreeze()`: requires `FROZEN`, sets `ACTIVE`.
+> **Unfreeze** (`PUT /api/admin/accounts/{id}/unfreeze`) follows the same flow with `account.unfreeze()` → `state.unfreeze()`: `FrozenState` returns `ActiveState.INSTANCE`; `ActiveState`/`ClosedState` throw.
 >
-> **Close** (`PUT /api/admin/accounts/{id}/close`) follows the same flow with `account.close()`: accepts `ACTIVE` or `FROZEN`, sets `CLOSED` (terminal — no further transitions possible).
+> **Close** (`PUT /api/admin/accounts/{id}/close`) follows the same flow with `account.close()` → `state.close()`: `ActiveState` and `FrozenState` return `ClosedState.INSTANCE`; `ClosedState` throws ("already closed"). `CLOSED` is terminal.
+
+---
+
+## 8. OpenCheckingAccountUseCase
+
+Customer opens a new checking account, optionally with an overdraft limit. Two parallel flows exist for `POST /api/accounts/savings` (rate field, `SavingsAccount`) and `POST /api/accounts/time-deposit` (principal/maturity/rate fields, `TimeDepositAccount`) — same shape, different command and factory.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Cust
+    participant Security as Security Filter
+    participant Ctrl     as AccountController
+    participant AppSvc   as AccountApplicationService
+    participant CustRepo as CustomerPersistenceAdapter
+    participant Account  as CheckingAccount (entity)
+    participant AccRepo  as AccountPersistenceAdapter
+    participant DB       as PostgreSQL
+
+    Cust->>Security: POST /api/accounts/checking?ownerId={id}<br/>{currency, overdraftLimit?}<br/>Basic Auth header
+    Security->>Security: authenticate + hasRole(ROLE_CUSTOMER) ✓
+    Security->>Ctrl: forward request
+
+    Note over Ctrl: defaults overdraftLimit to<br/>Money.zero(currency) if absent
+    Ctrl->>AppSvc: openChecking(Command{ownerId, currency, overdraftLimit})
+
+    AppSvc->>CustRepo: existsById(ownerId)
+    CustRepo->>DB: SELECT COUNT(*) FROM customers WHERE id=?
+    DB-->>CustRepo: 1
+    CustRepo-->>AppSvc: true (else throws CustomerNotFoundException → 404)
+
+    AppSvc->>Account: CheckingAccount.open(ownerId, currency, overdraftLimit)
+    Note over Account: state = ActiveState.INSTANCE<br/>balance = Money.zero(currency)<br/>type = CHECKING
+    Account-->>AppSvc: new CheckingAccount
+
+    AppSvc->>AccRepo: save(account)
+    Note over AccRepo: mapper sets type='CHECKING',<br/>writes overdraft_limit column,<br/>leaves savings/time-deposit<br/>columns null
+    AccRepo->>DB: INSERT INTO accounts (..., type, overdraft_limit) VALUES (..., 'CHECKING', ?)
+    DB-->>AccRepo: saved row
+    AccRepo-->>AppSvc: CheckingAccount
+
+    AppSvc-->>Ctrl: CheckingAccount
+    Ctrl-->>Cust: 201 Created {id, type='CHECKING', currency, balance=0, overdraftLimit, ...}
+```
+
+---
+
+## 9. AccrueInterestUseCase
+
+Admin triggers a monthly interest accrual on a savings account. The application service rejects the request if the account is not a `SavingsAccount`. Frozen savings accounts still accrue (interest is a system action, not a customer action); closed accounts do not.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin
+    participant Security  as Security Filter
+    participant Ctrl      as AdminController
+    participant AppSvc    as AccountApplicationService
+    participant Account   as SavingsAccount (entity)
+    participant State     as AccountState
+    participant AccRepo   as AccountPersistenceAdapter
+    participant TxRepo    as TransactionPersistenceAdapter
+    participant DB        as PostgreSQL
+
+    Admin->>Security: PUT /api/admin/accounts/{id}/accrue-interest<br/>{"month":"2026-04"}<br/>Basic Auth header
+    Security->>Security: authenticate + hasRole(ROLE_ADMIN) ✓
+    Security->>Ctrl: forward request
+
+    Ctrl->>AppSvc: accrueInterest(Command{accountId, YearMonth})
+
+    AppSvc->>AccRepo: findById(accountId)
+    AccRepo->>DB: SELECT * FROM accounts WHERE id=?
+    DB-->>AccRepo: AccountJpaEntity{type='SAVINGS', ...}
+    AccRepo-->>AppSvc: SavingsAccount
+
+    Note over AppSvc: if (!(account instanceof SavingsAccount))<br/>→ InvalidAccountOperationException<br/>("Account is not a savings account")<br/>→ HTTP 422
+
+    AppSvc->>Account: accrueInterest(YearMonth)
+    Account->>State: isTerminal()
+    State-->>Account: false (ACTIVE or FROZEN) / true (CLOSED → throw)
+    Note over Account: rejects double-accrual:<br/>if firstOfNextMonth ≤ lastAccrualDate<br/>throws "already accrued"<br/><br/>monthlyRate = annualRate / 12<br/>interest = balance × monthlyRate<br/>balance += interest<br/>lastAccrualDate = first of next month
+    Account-->>AppSvc: Transaction{INTEREST, amount, timestamp}
+
+    AppSvc->>AccRepo: save(account)
+    AccRepo->>DB: UPDATE accounts SET balance=?, last_accrual_date=? WHERE id=?
+    AppSvc->>TxRepo: save(transaction)
+    TxRepo->>DB: INSERT INTO transactions (type='INTEREST', ...)
+
+    AppSvc-->>Ctrl: Transaction
+    Ctrl-->>Admin: 200 OK {id, type='INTEREST', amount, currency, timestamp}
+```
+
+---
+
+## 10. MatureTimeDepositUseCase
+
+Admin matures a time deposit. Maturation credits the full annualised interest (`principal × rate × yearsHeld`) as a single `INTEREST` transaction, sets the `matured` flag (which unlocks future withdrawals), and is rejected if the account is closed, already matured, or before the maturity date. Frozen time deposits can still be matured.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin
+    participant Security as Security Filter
+    participant Ctrl     as AdminController
+    participant AppSvc   as AccountApplicationService
+    participant Account  as TimeDepositAccount (entity)
+    participant State    as AccountState
+    participant AccRepo  as AccountPersistenceAdapter
+    participant TxRepo   as TransactionPersistenceAdapter
+    participant DB       as PostgreSQL
+
+    Admin->>Security: PUT /api/admin/accounts/{id}/mature<br/>Basic Auth header
+    Security->>Security: authenticate + hasRole(ROLE_ADMIN) ✓
+    Security->>Ctrl: forward request
+
+    Ctrl->>AppSvc: mature(Command{accountId})
+
+    AppSvc->>AccRepo: findById(accountId)
+    AccRepo->>DB: SELECT * FROM accounts WHERE id=?
+    DB-->>AccRepo: AccountJpaEntity{type='TIME_DEPOSIT', ...}
+    AccRepo-->>AppSvc: TimeDepositAccount{matured=false, maturityDate, principal, ...}
+
+    Note over AppSvc: if (!(account instanceof TimeDepositAccount))<br/>→ InvalidAccountOperationException<br/>("Account is not a time deposit")<br/>→ HTTP 422
+
+    AppSvc->>Account: mature(LocalDate.now())
+    Account->>State: isTerminal()
+    State-->>Account: false (ACTIVE/FROZEN) / true (CLOSED → throw)
+    Note over Account: rejects double-mature: matured=true → throw<br/>rejects pre-maturity: today < maturityDate → throw<br/><br/>years = months(openedOn → maturityDate) / 12<br/>interest = principal × annualRate × years<br/>balance += interest<br/>matured = true
+    Account-->>AppSvc: Transaction{INTEREST, amount, "Maturity interest credit"}
+
+    AppSvc->>AccRepo: save(account)
+    AccRepo->>DB: UPDATE accounts SET balance=?, matured=true WHERE id=?
+    AppSvc->>TxRepo: save(transaction)
+    TxRepo->>DB: INSERT INTO transactions (type='INTEREST', ...)
+
+    AppSvc-->>Ctrl: Transaction
+    Ctrl-->>Admin: 200 OK {id, type='INTEREST', amount, currency, timestamp}
+```
+
+> After maturation, `withdraw` becomes available on the time deposit (subject to the standard `requireOperable()` state check). `deposit` and `transferOut` remain forbidden by design — the principal stays "fixed".
