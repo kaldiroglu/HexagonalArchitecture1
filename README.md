@@ -75,10 +75,18 @@ src/main/java/
     │   ├── exception/       # Typed application exceptions
     │   └── service/         # CustomerApplicationService, AccountApplicationService
     ├── config/              # SecurityConfig, BankUserDetailsService, AdminDataInitializer
-    └── domain/
-        ├── model/           # Customer, Account, Transaction + value objects
+    └── domain/              # Split per aggregate: account vs customer
+        ├── model/
+        │   ├── account/     # Account hierarchy + State pattern + Money/Currency/Transaction
+        │   └── customer/    # Customer, CustomerId, Password
         ├── port/
-        │   ├── in/          # Use-case interfaces + Command records
-        │   └── out/         # Repository and infrastructure interfaces
-        └── service/         # PasswordValidationService, TransferDomainService
+        │   ├── in/
+        │   │   ├── account/   # 15 account use cases (open*, deposit, withdraw, freeze, accrue, mature, ...)
+        │   │   └── customer/  # 4 customer use cases (create, delete, list, change password)
+        │   └── out/
+        │       ├── account/   # AccountRepositoryPort, TransactionRepositoryPort, SettingsRepositoryPort
+        │       └── customer/  # CustomerRepositoryPort, PasswordHasherPort
+        └── service/
+            ├── account/     # TransferDomainService
+            └── customer/    # PasswordValidationService
 ```

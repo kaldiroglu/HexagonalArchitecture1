@@ -27,16 +27,22 @@ mvn spring-boot:run
 The project strictly enforces the Dependency Rule: all dependencies point inward toward the domain.
 
 ```
-adapter/in/web/          → REST controllers + request/response DTOs
-adapter/out/persistence/ → JPA entities (DTOs), Spring Data repos, mappers, adapters
-adapter/out/security/    → BCryptPasswordHasherAdapter
-application/service/     → CustomerApplicationService, AccountApplicationService
-config/                  → SecurityConfig (Spring beans), BankUserDetailsService
-domain/model/            → Entities (Customer, Account + 3 subtypes, Transaction) + value objects (records) + AccountState hierarchy
-domain/service/          → PasswordValidationService, TransferDomainService (pure Java)
-domain/port/in/          → Use-case interfaces with nested Command records
-domain/port/out/         → Repository and infrastructure interfaces
+adapter/in/web/                → REST controllers + request/response DTOs
+adapter/out/persistence/       → JPA entities (DTOs), Spring Data repos, mappers, adapters
+adapter/out/security/          → BCryptPasswordHasherAdapter
+application/service/           → CustomerApplicationService, AccountApplicationService
+config/                        → SecurityConfig (Spring beans), BankUserDetailsService
+domain/model/account/          → Account hierarchy (sealed) + AccountState pattern + Money, Currency, Transaction, AccountId/Type/Status
+domain/model/customer/         → Customer, CustomerId, Password
+domain/service/account/        → TransferDomainService
+domain/service/customer/       → PasswordValidationService
+domain/port/in/account/        → 15 account use-case interfaces (open*, deposit, withdraw, transfer, freeze/unfreeze/close, accrue, mature, set transfer fee, ...)
+domain/port/in/customer/       → CreateCustomer, DeleteCustomer, ListCustomers, ChangePassword
+domain/port/out/account/       → AccountRepositoryPort, TransactionRepositoryPort, SettingsRepositoryPort
+domain/port/out/customer/      → CustomerRepositoryPort, PasswordHasherPort
 ```
+
+The domain is split per aggregate (`account` vs `customer`) at every layer — model, service, ports — so each aggregate's vocabulary is locally complete.
 
 **Domain layer has zero Spring/JPA imports.** Domain services are instantiated as `@Bean` in `SecurityConfig` so they can be injected without becoming Spring components.
 

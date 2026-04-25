@@ -3,6 +3,8 @@ title: Domain UML Class Diagrams - Package `dev.kaldiroglu.hexagonal.ayvalikbank
 ---
 
 %% 1. Domain Model — Entities, Value Objects, State, & Enums
+%% (Account-aggregate classes live in domain.model.account; Customer-aggregate in domain.model.customer.
+%%  Account holds a CustomerId — the only cross-aggregate reference.)
 
 classDiagram
     direction TB
@@ -476,8 +478,7 @@ classDiagram
 
     direction LR
 
-    namespace model {
-        class Customer
+    namespace model_account {
         class Account
         class CheckingAccount
         class SavingsAccount
@@ -488,8 +489,6 @@ classDiagram
         class ClosedState
         class Transaction
         class Money
-        class Password
-        class CustomerId
         class AccountId
         class TransactionId
         class Currency
@@ -498,16 +497,21 @@ classDiagram
         class AccountStatus
     }
 
-    namespace services {
-        class PasswordValidationService
+    namespace model_customer {
+        class Customer
+        class Password
+        class CustomerId
+    }
+
+    namespace services_account {
         class TransferDomainService
     }
 
-    namespace portsIn {
-        class CreateCustomerUseCase
-        class DeleteCustomerUseCase
-        class ListCustomersUseCase
-        class ChangePasswordUseCase
+    namespace services_customer {
+        class PasswordValidationService
+    }
+
+    namespace portsIn_account {
         class OpenCheckingAccountUseCase
         class OpenSavingsAccountUseCase
         class OpenTimeDepositAccountUseCase
@@ -525,12 +529,22 @@ classDiagram
         class MatureTimeDepositUseCase
     }
 
-    namespace portsOut {
-        class CustomerRepositoryPort
+    namespace portsIn_customer {
+        class CreateCustomerUseCase
+        class DeleteCustomerUseCase
+        class ListCustomersUseCase
+        class ChangePasswordUseCase
+    }
+
+    namespace portsOut_account {
         class AccountRepositoryPort
         class TransactionRepositoryPort
-        class PasswordHasherPort
         class SettingsRepositoryPort
+    }
+
+    namespace portsOut_customer {
+        class CustomerRepositoryPort
+        class PasswordHasherPort
     }
 
     CreateCustomerUseCase            ..> Customer            : returns

@@ -30,9 +30,11 @@ The core idea is the **Dependency Rule**: every arrow points inward. The domain 
 ## Layer-by-Layer Breakdown
 
 ### 1. Domain Layer (`domain/`)
-The heart of the application. **No Spring, no JPA, no BCrypt** — plain Java only.
+The heart of the application. **No Spring, no JPA, no BCrypt** — plain Java only. The domain is split per aggregate (`account` and `customer`) at every layer — model, service, ports — so each aggregate's vocabulary is locally complete.
 
-**Entities** (`domain/model/`): `Customer`, `Account` (sealed hierarchy — see below), `Transaction`
+**Entities — account aggregate** (`domain/model/account/`): `Account` (sealed hierarchy — see below), `CheckingAccount`, `SavingsAccount`, `TimeDepositAccount`, `Transaction`
+
+**Entities — customer aggregate** (`domain/model/customer/`): `Customer`
 
 These are *rich* objects. `Account` owns its own invariants:
 ```java
@@ -44,21 +46,31 @@ account.unfreeze()          // FROZEN → ACTIVE
 account.close()             // ACTIVE|FROZEN → CLOSED (terminal)
 ```
 
-**Enums** (`domain/model/`): `AccountStatus` (`ACTIVE`, `FROZEN`, `CLOSED`), `AccountType` (`CHECKING`, `SAVINGS`, `TIME_DEPOSIT`), `Currency`, `TransactionType` (includes `INTEREST`)
+**Enums** (`domain/model/account/`): `AccountStatus` (`ACTIVE`, `FROZEN`, `CLOSED`), `AccountType` (`CHECKING`, `SAVINGS`, `TIME_DEPOSIT`), `Currency`, `TransactionType` (includes `INTEREST`)
 
-`AccountStatus` drives a state machine inside `Account`. All mutating operations require `ACTIVE`; invalid transitions throw `IllegalStateException`.
+`AccountStatus` drives a state machine inside `Account` via the `AccountState` sealed interface (see [Account hierarchy](#account-hierarchy)). All mutating operations require `ACTIVE`; invalid transitions throw `IllegalStateException`.
 
-**Value Objects as Records** (`domain/model/`): `Money`, `Password`, `CustomerId`, `AccountId`, `TransactionId`
+**Value Objects as Records:**
+- Account-side (`domain/model/account/`): `Money`, `AccountId`, `TransactionId`
+- Customer-side (`domain/model/customer/`): `Password`, `CustomerId`
 
-Immutable and self-validating. `Money.subtract()` throws if balance is insufficient. `Password` stores only BCrypt hashes.
+Immutable and self-validating. `Money` permits negative amounts (required to represent overdraft balances) but rejects null. `Password` stores only BCrypt hashes. The `account` package references `customer.CustomerId` via an explicit cross-aggregate import — the only coupling between the two aggregates.
 
-**Domain Services** (`domain/service/`):
-- `PasswordValidationService` — enforces 8-16 char, upper/lower/digit/special rules
-- `TransferDomainService` — computes fees (0% same customer, configurable % cross-customer)
+**Domain Services:**
+- `domain/service/customer/PasswordValidationService` — enforces 8-16 char, upper/lower/digit/special rules
+- `domain/service/account/TransferDomainService` — computes fees (0% same customer, configurable % cross-customer)
 
-**Ports In** (`domain/port/in/`): Use-case interfaces such as `CreateCustomerUseCase`, `OpenCheckingAccountUseCase`, `OpenSavingsAccountUseCase`, `OpenTimeDepositAccountUseCase`, `DepositMoneyUseCase`, `FreezeAccountUseCase`, `UnfreezeAccountUseCase`, `CloseAccountUseCase`, `AccrueInterestUseCase`, `MatureTimeDepositUseCase`. Each carries a nested `Command` record for its input (or takes a typed ID directly for simple operations).
+**Ports In:**
+- `domain/port/in/account/` — 15 account use cases: `OpenCheckingAccountUseCase`, `OpenSavingsAccountUseCase`, `OpenTimeDepositAccountUseCase`, `DepositMoneyUseCase`, `WithdrawMoneyUseCase`, `TransferMoneyUseCase`, `GetBalanceUseCase`, `GetTransactionsUseCase`, `ListAccountsUseCase`, `FreezeAccountUseCase`, `UnfreezeAccountUseCase`, `CloseAccountUseCase`, `AccrueInterestUseCase`, `MatureTimeDepositUseCase`, `SetTransferFeeUseCase`
+- `domain/port/in/customer/` — 4 customer use cases: `CreateCustomerUseCase`, `DeleteCustomerUseCase`, `ListCustomersUseCase`, `ChangePasswordUseCase`
 
-**Ports Out** (`domain/port/out/`): Repository interfaces (`CustomerRepositoryPort`, `AccountRepositoryPort`, etc.) and infrastructure interfaces (`PasswordHasherPort`, `SettingsRepositoryPort`). The domain *declares* what it needs; the adapters *provide* it.
+Each use case carries a nested `Command` record for its input (or takes a typed ID directly for simple operations).
+
+**Ports Out:**
+- `domain/port/out/account/` — `AccountRepositoryPort`, `TransactionRepositoryPort`, `SettingsRepositoryPort`
+- `domain/port/out/customer/` — `CustomerRepositoryPort`, `PasswordHasherPort`
+
+The domain *declares* what it needs; the adapters *provide* it.
 
 ---
 

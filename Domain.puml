@@ -27,9 +27,10 @@ skinparam stereotype {
 }
 
 ' ─────────────────────────────────────────
-' PACKAGE: domain.model
+' PACKAGE: domain.model.account
+' (Customer / CustomerId / Password live in domain.model.customer)
 ' ─────────────────────────────────────────
-package "domain.model" {
+package "domain.model.account" {
 
     enum Currency {
         USD
@@ -67,14 +68,6 @@ package "domain.model" {
         FROZEN  --close()--> CLOSED
     end note
 
-    class CustomerId <<record>> {
-        + UUID value
-        --
-        + {static} CustomerId generate()
-        + {static} CustomerId of(UUID)
-        + {static} CustomerId of(String)
-    }
-
     class AccountId <<record>> {
         + UUID value
         --
@@ -88,12 +81,6 @@ package "domain.model" {
         --
         + {static} TransactionId generate()
         + {static} TransactionId of(UUID)
-    }
-
-    class Password <<record>> {
-        + String hashedValue
-        --
-        + {static} Password ofHashed(String)
     }
 
     class Money <<record>> {
@@ -110,25 +97,6 @@ package "domain.model" {
         + boolean isGreaterThanOrEqualTo(Money)
         + boolean isNegative()
         + boolean isZero()
-    }
-
-    class Customer <<entity>> {
-        - CustomerId id
-        - String name
-        - String email
-        - String role
-        - Password currentPassword
-        - List<Password> passwordHistory
-        --
-        + {static} Customer create(String, String, Password)
-        + void changePassword(Password)
-        + List<Password> getAllPasswordsForReuseCheck()
-        + CustomerId getId()
-        + String getName()
-        + String getEmail()
-        + String getRole()
-        + Password getCurrentPassword()
-        + List<Password> getPasswordHistory()
     }
 
     abstract class Account <<sealed>> {
@@ -252,10 +220,6 @@ package "domain.model" {
         + String getDescription()
     }
 
-    Customer    "1" *-right- "1"    CustomerId    : id
-    Customer    "1" *-down-  "1"    Password      : currentPassword
-    Customer    "1" *-down-  "0..3" Password      : passwordHistory
-
     Account     "1" *-right- "1"    AccountId     : id
     Account     "1" *-down-  "1"    Money         : balance
     Account     "1" o-right- "1"    CustomerId    : ownerId
@@ -280,27 +244,77 @@ package "domain.model" {
 }
 
 ' ─────────────────────────────────────────
-' PACKAGE: domain.service
+' PACKAGE: domain.model.customer
 ' ─────────────────────────────────────────
-package "domain.service" {
+package "domain.model.customer" {
 
-    class PasswordValidationService <<service>> {
-        + void validate(String rawPassword)
+    class CustomerId <<record>> {
+        + UUID value
+        --
+        + {static} CustomerId generate()
+        + {static} CustomerId of(UUID)
+        + {static} CustomerId of(String)
     }
+
+    class Password <<record>> {
+        + String hashedValue
+        --
+        + {static} Password ofHashed(String)
+    }
+
+    class Customer <<entity>> {
+        - CustomerId id
+        - String name
+        - String email
+        - String role
+        - Password currentPassword
+        - List<Password> passwordHistory
+        --
+        + {static} Customer create(String, String, Password)
+        + void changePassword(Password)
+        + List<Password> getAllPasswordsForReuseCheck()
+        + CustomerId getId()
+        + String getName()
+        + String getEmail()
+        + String getRole()
+        + Password getCurrentPassword()
+        + List<Password> getPasswordHistory()
+    }
+
+    Customer "1" *-- "1"    CustomerId : id
+    Customer "1" *-- "1"    Password   : currentPassword
+    Customer "1" *-- "0..3" Password   : passwordHistory
+}
+
+' Cross-aggregate reference: Account holds an ownerId (CustomerId)
+Account ..> CustomerId : "ownerId"
+
+' ─────────────────────────────────────────
+' PACKAGE: domain.service.account
+' ─────────────────────────────────────────
+package "domain.service.account" {
 
     class TransferDomainService <<service>> {
         + Money calculateFee(Money, boolean, BigDecimal)
     }
 }
 
+' ─────────────────────────────────────────
+' PACKAGE: domain.service.customer
+' ─────────────────────────────────────────
+package "domain.service.customer" {
+
+    class PasswordValidationService <<service>> {
+        + void validate(String rawPassword)
+    }
+}
+
 TransferDomainService ..> Money : "returns"
 
 ' ─────────────────────────────────────────
-' PACKAGE: domain.port.in  (Use Cases)
-' Command records are nested classes shown
-' with +-- (inner class) relationship.
+' PACKAGE: domain.port.in.customer
 ' ─────────────────────────────────────────
-package "domain.port.in" {
+package "domain.port.in.customer" {
 
     interface CreateCustomerUseCase {
         + Customer createCustomer(Command)
@@ -328,6 +342,14 @@ package "domain.port.in" {
         + String rawNewPassword
     }
     ChangePasswordUseCase +-- ChangePasswordCommand
+}
+
+' ─────────────────────────────────────────
+' PACKAGE: domain.port.in.account  (Use Cases)
+' Command records are nested classes shown
+' with +-- (inner class) relationship.
+' ─────────────────────────────────────────
+package "domain.port.in.account" {
 
     interface OpenCheckingAccountUseCase {
         + CheckingAccount openChecking(Command)
@@ -440,18 +462,9 @@ package "domain.port.in" {
 }
 
 ' ─────────────────────────────────────────
-' PACKAGE: domain.port.out
+' PACKAGE: domain.port.out.account
 ' ─────────────────────────────────────────
-package "domain.port.out" {
-
-    interface CustomerRepositoryPort {
-        + Customer save(Customer)
-        + Optional<Customer> findById(CustomerId)
-        + Optional<Customer> findByEmail(String)
-        + List<Customer> findAll()
-        + void deleteById(CustomerId)
-        + boolean existsById(CustomerId)
-    }
+package "domain.port.out.account" {
 
     interface AccountRepositoryPort {
         + Account save(Account)
@@ -465,14 +478,29 @@ package "domain.port.out" {
         + List<Transaction> findByAccountId(AccountId)
     }
 
-    interface PasswordHasherPort {
-        + String hash(String rawPassword)
-        + boolean matches(String rawPassword, String hashedPassword)
-    }
-
     interface SettingsRepositoryPort {
         + BigDecimal getTransferFeePercent()
         + void setTransferFeePercent(BigDecimal)
+    }
+}
+
+' ─────────────────────────────────────────
+' PACKAGE: domain.port.out.customer
+' ─────────────────────────────────────────
+package "domain.port.out.customer" {
+
+    interface CustomerRepositoryPort {
+        + Customer save(Customer)
+        + Optional<Customer> findById(CustomerId)
+        + Optional<Customer> findByEmail(String)
+        + List<Customer> findAll()
+        + void deleteById(CustomerId)
+        + boolean existsById(CustomerId)
+    }
+
+    interface PasswordHasherPort {
+        + String hash(String rawPassword)
+        + boolean matches(String rawPassword, String hashedPassword)
     }
 }
 

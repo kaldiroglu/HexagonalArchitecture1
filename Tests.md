@@ -41,7 +41,7 @@ These tests cover the core business logic. They are pure Java — no Spring cont
 
 ### `MoneyTest` — 9 tests
 
-**Class under test:** `domain/model/Money.java` (value object / record)
+**Class under test:** `domain/model/account/Money.java` (value object / record)
 
 `Money` holds an amount and a currency. It permits negative amounts (required to represent overdraft balances) and disallows arithmetic across different currencies.
 
@@ -61,7 +61,7 @@ These tests cover the core business logic. They are pure Java — no Spring cont
 
 ### `AccountTest` — 21 tests
 
-**Class under test:** `domain/model/Account.java` (entity)
+**Class under test:** `domain/model/account/Account.java` (entity)
 
 `Account` is a rich entity. Its methods — `deposit`, `withdraw`, `transferOut`, `transferIn` — enforce currency matching and balance invariants, and each returns a `Transaction` object. It also owns an `AccountStatus` state machine with `freeze()`, `unfreeze()`, and `close()` transitions.
 
@@ -115,7 +115,7 @@ These tests cover the core business logic. They are pure Java — no Spring cont
 
 ### `CustomerTest` — 3 tests
 
-**Class under test:** `domain/model/Customer.java` (entity)
+**Class under test:** `domain/model/customer/Customer.java` (entity)
 
 `Customer` tracks the current password and up to 3 previous password hashes. The password history is managed entirely inside the entity's `changePassword` method.
 
@@ -129,7 +129,7 @@ These tests cover the core business logic. They are pure Java — no Spring cont
 
 ### `CheckingAccountTest` — 4 tests
 
-**Class under test:** `domain/model/CheckingAccount.java` (sealed subtype of `Account`)
+**Class under test:** `domain/model/account/CheckingAccount.java` (sealed subtype of `Account`)
 
 `CheckingAccount` extends the base account with an optional overdraft limit. Withdrawals may take the balance negative down to `-overdraftLimit`.
 
@@ -144,7 +144,7 @@ These tests cover the core business logic. They are pure Java — no Spring cont
 
 ### `SavingsAccountTest` — 7 tests
 
-**Class under test:** `domain/model/SavingsAccount.java` (sealed subtype of `Account`)
+**Class under test:** `domain/model/account/SavingsAccount.java` (sealed subtype of `Account`)
 
 `SavingsAccount` carries an annual interest rate and tracks the last accrual date. Interest is credited month by month via `accrueInterest(YearMonth)`.
 
@@ -162,7 +162,7 @@ These tests cover the core business logic. They are pure Java — no Spring cont
 
 ### `TimeDepositAccountTest` — 9 tests
 
-**Class under test:** `domain/model/TimeDepositAccount.java` (sealed subtype of `Account`)
+**Class under test:** `domain/model/account/TimeDepositAccount.java` (sealed subtype of `Account`)
 
 `TimeDepositAccount` locks the principal at open. Deposits are rejected, withdrawals are blocked until `mature(LocalDate)` is called on or after the maturity date.
 
@@ -182,7 +182,7 @@ These tests cover the core business logic. They are pure Java — no Spring cont
 
 ### `AccountStateTest` — 20 tests
 
-**Class under test:** `domain/model/AccountState.java` and the three implementations (`ActiveState`, `FrozenState`, `ClosedState`).
+**Class under test:** `domain/model/account/AccountState.java` and the three implementations (`ActiveState`, `FrozenState`, `ClosedState`).
 
 `AccountState` is the State pattern's polymorphic core: a sealed interface with three stateless singleton implementations, each owning the valid transitions and operability check for its state. Tests are grouped with `@Nested` per state, plus a factory and singleton-invariant group.
 
@@ -203,7 +203,7 @@ These tests cover the core business logic. They are pure Java — no Spring cont
 
 ### `PasswordValidationServiceTest` — 8 tests
 
-**Class under test:** `domain/service/PasswordValidationService.java` (domain service)
+**Class under test:** `domain/service/customer/PasswordValidationService.java` (domain service)
 
 `PasswordValidationService` enforces the password policy: 8–16 characters, at least one uppercase letter, one lowercase letter, one digit, and one special character.
 
