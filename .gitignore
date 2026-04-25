@@ -4,3 +4,13 @@ target/
 ._*
 .Spotlight-V100
 .Trashes
+
+# IDE
+.idea/
+.vscode/
+
+# Personal scratch notes (not part of the project)
+API.txt
+PostgreSQL.txt
+Problemst.txt
+Prompt.txt
