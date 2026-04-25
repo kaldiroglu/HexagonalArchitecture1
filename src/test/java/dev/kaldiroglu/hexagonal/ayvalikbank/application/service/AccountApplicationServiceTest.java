@@ -4,6 +4,7 @@ import dev.kaldiroglu.hexagonal.ayvalikbank.application.exception.AccountNotFoun
 import dev.kaldiroglu.hexagonal.ayvalikbank.application.exception.AccountNotOperableException;
 import dev.kaldiroglu.hexagonal.ayvalikbank.application.exception.CustomerNotFoundException;
 import dev.kaldiroglu.hexagonal.ayvalikbank.application.exception.InvalidAccountOperationException;
+import dev.kaldiroglu.hexagonal.ayvalikbank.application.exception.LimitExceededException;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.account.*;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.customer.*;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.port.in.account.AccrueInterestUseCase;
@@ -141,6 +142,7 @@ class AccountApplicationServiceTest {
 
         when(accountRepository.findById(source.getId())).thenReturn(Optional.of(source));
         when(accountRepository.findById(target.getId())).thenReturn(Optional.of(target));
+        when(customerRepository.findById(ownerId)).thenReturn(Optional.of(stubCustomer(ownerId, CustomerTier.STANDARD)));
         when(settingsRepository.getTransferFeePercent()).thenReturn(new BigDecimal("1.0"));
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(transactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -163,6 +165,7 @@ class AccountApplicationServiceTest {
 
         when(accountRepository.findById(source.getId())).thenReturn(Optional.of(source));
         when(accountRepository.findById(target.getId())).thenReturn(Optional.of(target));
+        when(customerRepository.findById(owner1)).thenReturn(Optional.of(stubCustomer(owner1, CustomerTier.STANDARD)));
         when(settingsRepository.getTransferFeePercent()).thenReturn(new BigDecimal("1.0"));
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(transactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -241,11 +244,73 @@ class AccountApplicationServiceTest {
         Account account = CheckingAccount.open(ownerId, Currency.USD);
         account.deposit(Money.of(100.0, Currency.USD));
         when(accountRepository.findById(account.getId())).thenReturn(Optional.of(account));
+        when(customerRepository.findById(ownerId)).thenReturn(Optional.of(stubCustomer(ownerId, CustomerTier.STANDARD)));
 
         assertThatThrownBy(() -> service.withdraw(
                 new WithdrawMoneyUseCase.Command(account.getId(), Money.of(500.0, Currency.USD))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Insufficient");
+    }
+
+    private Customer stubCustomer(CustomerId id, CustomerTier tier) {
+        return new Customer(id, "Stub", "stub@test.com", "CUSTOMER", tier,
+                Password.ofHashed("hash"), new java.util.ArrayList<>());
+    }
+
+    // ── tier-aware fee + limit ────────────────────────────────────────────
+
+    @Test
+    void shouldHalveFeeForPremiumSourceCustomer() {
+        CustomerId owner1 = CustomerId.generate();
+        CustomerId owner2 = CustomerId.generate();
+        Account source = CheckingAccount.open(owner1, Currency.USD);
+        Account target = CheckingAccount.open(owner2, Currency.USD);
+        source.deposit(Money.of(1000.0, Currency.USD));
+
+        when(accountRepository.findById(source.getId())).thenReturn(Optional.of(source));
+        when(accountRepository.findById(target.getId())).thenReturn(Optional.of(target));
+        when(customerRepository.findById(owner1)).thenReturn(Optional.of(stubCustomer(owner1, CustomerTier.PREMIUM)));
+        when(settingsRepository.getTransferFeePercent()).thenReturn(new BigDecimal("1.0"));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(transactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.transfer(new TransferMoneyUseCase.Command(
+                source.getId(), target.getId(), Money.of(200.0, Currency.USD)));
+
+        // 1% × 0.5 multiplier × 200 = 1.00 fee → source debited 201.00
+        assertThat(source.getBalance().amount()).isEqualByComparingTo("799.00");
+    }
+
+    @Test
+    void shouldRejectTransferAboveStandardCap() {
+        CustomerId owner1 = CustomerId.generate();
+        CustomerId owner2 = CustomerId.generate();
+        Account source = CheckingAccount.open(owner1, Currency.USD);
+        Account target = CheckingAccount.open(owner2, Currency.USD);
+        source.deposit(Money.of(10000.0, Currency.USD));
+
+        when(accountRepository.findById(source.getId())).thenReturn(Optional.of(source));
+        when(accountRepository.findById(target.getId())).thenReturn(Optional.of(target));
+        when(customerRepository.findById(owner1)).thenReturn(Optional.of(stubCustomer(owner1, CustomerTier.STANDARD)));
+
+        assertThatThrownBy(() -> service.transfer(new TransferMoneyUseCase.Command(
+                source.getId(), target.getId(), Money.of(5001.0, Currency.USD))))
+                .isInstanceOf(LimitExceededException.class)
+                .hasMessageContaining("STANDARD");
+    }
+
+    @Test
+    void shouldRejectWithdrawAboveStandardCap() {
+        CustomerId ownerId = CustomerId.generate();
+        Account account = CheckingAccount.open(ownerId, Currency.USD);
+        account.deposit(Money.of(10000.0, Currency.USD));
+        when(accountRepository.findById(account.getId())).thenReturn(Optional.of(account));
+        when(customerRepository.findById(ownerId)).thenReturn(Optional.of(stubCustomer(ownerId, CustomerTier.STANDARD)));
+
+        assertThatThrownBy(() -> service.withdraw(
+                new WithdrawMoneyUseCase.Command(account.getId(), Money.of(5001.0, Currency.USD))))
+                .isInstanceOf(LimitExceededException.class)
+                .hasMessageContaining("STANDARD");
     }
 
     // ── accrue interest / mature ──────────────────────────────────────────

@@ -22,6 +22,9 @@ public class CustomerJpaEntity {
     @Column(name = "role", nullable = false)
     private String role;
 
+    @Column(name = "tier", nullable = false, length = 16)
+    private String tier;
+
     @Column(name = "current_password", nullable = false)
     private String currentPassword;
 
@@ -42,6 +45,9 @@ public class CustomerJpaEntity {
 
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
+
+    public String getTier() { return tier; }
+    public void setTier(String tier) { this.tier = tier; }
 
     public String getCurrentPassword() { return currentPassword; }
     public void setCurrentPassword(String currentPassword) { this.currentPassword = currentPassword; }

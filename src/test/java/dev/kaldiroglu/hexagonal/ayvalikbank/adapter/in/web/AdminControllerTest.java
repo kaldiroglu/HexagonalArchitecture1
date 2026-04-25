@@ -9,6 +9,7 @@ import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.account.AccountId;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.account.Currency;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.customer.Customer;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.customer.CustomerId;
+import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.customer.CustomerTier;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.account.Money;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.customer.Password;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.account.Transaction;
@@ -45,6 +46,7 @@ class AdminControllerTest {
     @MockitoBean CreateCustomerUseCase createCustomer;
     @MockitoBean DeleteCustomerUseCase deleteCustomer;
     @MockitoBean ListCustomersUseCase listCustomers;
+    @MockitoBean ChangeCustomerTierUseCase changeCustomerTier;
     @MockitoBean SetTransferFeeUseCase setTransferFee;
     @MockitoBean FreezeAccountUseCase freezeAccount;
     @MockitoBean UnfreezeAccountUseCase unfreezeAccount;
@@ -56,7 +58,7 @@ class AdminControllerTest {
 
     private Customer stubCustomer(String name, String email) {
         return new Customer(CustomerId.generate(), name, email, "CUSTOMER",
-                Password.ofHashed("hash"), new ArrayList<>());
+                CustomerTier.STANDARD, Password.ofHashed("hash"), new ArrayList<>());
     }
 
     // ── POST /api/admin/customers ─────────────────────────────────────────
@@ -170,6 +172,45 @@ class AdminControllerTest {
         mockMvc.perform(get("/api/admin/customers"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    // ── PUT /api/admin/customers/{id}/tier ────────────────────────────────
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void changeCustomerTier_returnsOk() throws Exception {
+        String id = UUID.randomUUID().toString();
+        doNothing().when(changeCustomerTier).changeCustomerTier(any());
+
+        mockMvc.perform(put("/api/admin/customers/{id}/tier", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"tier":"PREMIUM"}
+                                """))
+                .andExpect(status().isOk());
+
+        verify(changeCustomerTier).changeCustomerTier(any());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void changeCustomerTier_returnsBadRequestOnMissingTier() throws Exception {
+        mockMvc.perform(put("/api/admin/customers/{id}/tier", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(changeCustomerTier);
+    }
+
+    @Test
+    @WithMockUser(roles = "CUSTOMER")
+    void changeCustomerTier_returnsForbiddenForCustomerRole() throws Exception {
+        mockMvc.perform(put("/api/admin/customers/{id}/tier", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"tier":"PRIVATE"}
+                                """))
+                .andExpect(status().isForbidden());
     }
 
     // ── PUT /api/admin/settings/transfer-fee ─────────────────────────────

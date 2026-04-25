@@ -10,7 +10,7 @@ class CustomerTest {
 
     private Customer createCustomer(String passwordHash) {
         return new Customer(CustomerId.generate(), "Ali", "ali@test.com",
-                "CUSTOMER", Password.ofHashed(passwordHash), new ArrayList<>());
+                "CUSTOMER", CustomerTier.STANDARD, Password.ofHashed(passwordHash), new ArrayList<>());
     }
 
     @Test
@@ -46,5 +46,27 @@ class CustomerTest {
         var all = customer.getAllPasswordsForReuseCheck();
         assertThat(all).hasSize(3);
         assertThat(all.get(0).hashedValue()).isEqualTo("hash-2"); // current
+    }
+
+    @Test
+    void shouldDefaultToStandardTier() {
+        Customer customer = Customer.create("Ali", "ali@test.com", Password.ofHashed("h"));
+        assertThat(customer.getTier()).isEqualTo(CustomerTier.STANDARD);
+    }
+
+    @Test
+    void shouldChangeTier() {
+        Customer customer = createCustomer("h");
+        customer.changeTier(CustomerTier.PREMIUM);
+        assertThat(customer.getTier()).isEqualTo(CustomerTier.PREMIUM);
+        customer.changeTier(CustomerTier.PRIVATE);
+        assertThat(customer.getTier()).isEqualTo(CustomerTier.PRIVATE);
+    }
+
+    @Test
+    void shouldRejectNullTier() {
+        Customer customer = createCustomer("h");
+        assertThatThrownBy(() -> customer.changeTier(null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

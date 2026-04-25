@@ -4,6 +4,7 @@ import dev.kaldiroglu.hexagonal.ayvalikbank.application.exception.AccountNotFoun
 import dev.kaldiroglu.hexagonal.ayvalikbank.application.exception.AccountNotOperableException;
 import dev.kaldiroglu.hexagonal.ayvalikbank.application.exception.CustomerNotFoundException;
 import dev.kaldiroglu.hexagonal.ayvalikbank.application.exception.InvalidAccountOperationException;
+import dev.kaldiroglu.hexagonal.ayvalikbank.application.exception.LimitExceededException;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.account.*;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.customer.*;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.port.in.account.*;
@@ -95,6 +96,12 @@ public class AccountApplicationService implements
     @Override
     public Transaction withdraw(WithdrawMoneyUseCase.Command command) {
         Account account = findAccountOrThrow(command.accountId());
+        Customer owner = findCustomerOrThrow(account.getOwnerId());
+        try {
+            transferDomainService.requireWithdrawalWithinLimit(command.amount(), owner.getTier());
+        } catch (IllegalStateException e) {
+            throw new LimitExceededException(e.getMessage());
+        }
         Transaction tx;
         try {
             tx = account.withdraw(command.amount());
@@ -122,10 +129,17 @@ public class AccountApplicationService implements
     public void transfer(TransferMoneyUseCase.Command command) {
         Account source = findAccountOrThrow(command.sourceAccountId());
         Account target = findAccountOrThrow(command.targetAccountId());
+        Customer sourceOwner = findCustomerOrThrow(source.getOwnerId());
+
+        try {
+            transferDomainService.requireTransferWithinLimit(command.amount(), sourceOwner.getTier());
+        } catch (IllegalStateException e) {
+            throw new LimitExceededException(e.getMessage());
+        }
 
         boolean sameCustomer = source.getOwnerId().equals(target.getOwnerId());
         BigDecimal feePercent = settingsRepository.getTransferFeePercent();
-        Money fee = transferDomainService.calculateFee(command.amount(), sameCustomer, feePercent);
+        Money fee = transferDomainService.calculateFee(command.amount(), sameCustomer, feePercent, sourceOwner.getTier());
 
         Transaction outTx, inTx;
         try {
@@ -199,6 +213,11 @@ public class AccountApplicationService implements
     private void requireCustomerExists(CustomerId id) {
         if (!customerRepository.existsById(id))
             throw new CustomerNotFoundException("Customer not found: " + id);
+    }
+
+    private Customer findCustomerOrThrow(CustomerId id) {
+        return customerRepository.findById(id)
+                .orElseThrow(() -> new CustomerNotFoundException("Customer not found: " + id));
     }
 
     private Account findAccountOrThrow(AccountId accountId) {

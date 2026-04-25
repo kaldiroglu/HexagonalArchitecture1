@@ -4,6 +4,7 @@ import dev.kaldiroglu.hexagonal.ayvalikbank.adapter.out.persistence.entity.Custo
 import dev.kaldiroglu.hexagonal.ayvalikbank.adapter.out.persistence.entity.PasswordHistoryJpaEntity;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.customer.Customer;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.customer.CustomerId;
+import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.customer.CustomerTier;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.customer.Password;
 import org.springframework.stereotype.Component;
 
@@ -17,11 +18,13 @@ public class CustomerPersistenceMapper {
         List<Password> history = entity.getPasswordHistory().stream()
                 .map(h -> Password.ofHashed(h.getHashedPassword()))
                 .toList();
+        CustomerTier tier = entity.getTier() == null ? CustomerTier.STANDARD : CustomerTier.valueOf(entity.getTier());
         return new Customer(
                 CustomerId.of(entity.getId()),
                 entity.getName(),
                 entity.getEmail(),
                 entity.getRole(),
+                tier,
                 Password.ofHashed(entity.getCurrentPassword()),
                 history
         );
@@ -33,6 +36,7 @@ public class CustomerPersistenceMapper {
         entity.setName(customer.getName());
         entity.setEmail(customer.getEmail());
         entity.setRole(customer.getRole());
+        entity.setTier(customer.getTier().name());
         entity.setCurrentPassword(customer.getCurrentPassword().hashedValue());
 
         List<PasswordHistoryJpaEntity> historyEntities = new ArrayList<>();

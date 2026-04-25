@@ -1,6 +1,7 @@
 package dev.kaldiroglu.hexagonal.ayvalikbank.adapter.in.web;
 
 import dev.kaldiroglu.hexagonal.ayvalikbank.adapter.in.web.dto.request.AccrueInterestRequest;
+import dev.kaldiroglu.hexagonal.ayvalikbank.adapter.in.web.dto.request.ChangeCustomerTierRequest;
 import dev.kaldiroglu.hexagonal.ayvalikbank.adapter.in.web.dto.request.CreateCustomerRequest;
 import dev.kaldiroglu.hexagonal.ayvalikbank.adapter.in.web.dto.request.SetTransferFeeRequest;
 import dev.kaldiroglu.hexagonal.ayvalikbank.adapter.in.web.dto.response.CustomerResponse;
@@ -24,6 +25,7 @@ public class AdminController {
     private final CreateCustomerUseCase createCustomer;
     private final DeleteCustomerUseCase deleteCustomer;
     private final ListCustomersUseCase listCustomers;
+    private final ChangeCustomerTierUseCase changeCustomerTier;
     private final SetTransferFeeUseCase setTransferFee;
     private final FreezeAccountUseCase freezeAccount;
     private final UnfreezeAccountUseCase unfreezeAccount;
@@ -34,6 +36,7 @@ public class AdminController {
     public AdminController(CreateCustomerUseCase createCustomer,
                            DeleteCustomerUseCase deleteCustomer,
                            ListCustomersUseCase listCustomers,
+                           ChangeCustomerTierUseCase changeCustomerTier,
                            SetTransferFeeUseCase setTransferFee,
                            FreezeAccountUseCase freezeAccount,
                            UnfreezeAccountUseCase unfreezeAccount,
@@ -43,6 +46,7 @@ public class AdminController {
         this.createCustomer = createCustomer;
         this.deleteCustomer = deleteCustomer;
         this.listCustomers = listCustomers;
+        this.changeCustomerTier = changeCustomerTier;
         this.setTransferFee = setTransferFee;
         this.freezeAccount = freezeAccount;
         this.unfreezeAccount = unfreezeAccount;
@@ -70,6 +74,14 @@ public class AdminController {
                 .map(CustomerResponse::from)
                 .toList();
         return ResponseEntity.ok(customers);
+    }
+
+    @PutMapping("/customers/{customerId}/tier")
+    public ResponseEntity<Void> changeCustomerTier(@PathVariable String customerId,
+                                                    @Valid @RequestBody ChangeCustomerTierRequest request) {
+        changeCustomerTier.changeCustomerTier(new ChangeCustomerTierUseCase.Command(
+                CustomerId.of(customerId), request.tier()));
+        return ResponseEntity.ok().build();
     }
 
     @PutMapping("/settings/transfer-fee")

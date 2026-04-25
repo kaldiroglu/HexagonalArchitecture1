@@ -24,6 +24,7 @@ public class CustomerApplicationService implements
         DeleteCustomerUseCase,
         ListCustomersUseCase,
         ChangePasswordUseCase,
+        ChangeCustomerTierUseCase,
         SetTransferFeeUseCase {
 
     private final CustomerRepositoryPort customerRepository;
@@ -72,6 +73,14 @@ public class CustomerApplicationService implements
 
         String newHash = passwordHasher.hash(command.rawNewPassword());
         customer.changePassword(Password.ofHashed(newHash));
+        customerRepository.save(customer);
+    }
+
+    @Override
+    public void changeCustomerTier(ChangeCustomerTierUseCase.Command command) {
+        Customer customer = customerRepository.findById(command.customerId())
+                .orElseThrow(() -> new CustomerNotFoundException("Customer not found: " + command.customerId()));
+        customer.changeTier(command.tier());
         customerRepository.save(customer);
     }
 

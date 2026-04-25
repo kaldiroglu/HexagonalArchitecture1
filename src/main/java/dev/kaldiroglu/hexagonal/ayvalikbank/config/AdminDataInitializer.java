@@ -2,6 +2,7 @@ package dev.kaldiroglu.hexagonal.ayvalikbank.config;
 
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.customer.Customer;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.customer.CustomerId;
+import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.customer.CustomerTier;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.model.customer.Password;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.port.out.customer.CustomerRepositoryPort;
 import dev.kaldiroglu.hexagonal.ayvalikbank.domain.port.out.customer.PasswordHasherPort;
@@ -54,6 +55,7 @@ public class AdminDataInitializer implements ApplicationRunner {
                 "System Admin",
                 ADMIN_EMAIL,
                 "ADMIN",
+                CustomerTier.STANDARD,
                 Password.ofHashed(hash),
                 new ArrayList<>()
         );

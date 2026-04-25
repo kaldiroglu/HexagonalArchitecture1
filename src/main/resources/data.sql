@@ -7,3 +7,8 @@ ON CONFLICT (key) DO NOTHING;
 UPDATE accounts
 SET type = 'CHECKING', overdraft_limit = 0
 WHERE type IS NULL;
+
+-- Backfill: any pre-existing customers (created before tiers) start at STANDARD.
+UPDATE customers
+SET tier = 'STANDARD'
+WHERE tier IS NULL;

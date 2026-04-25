@@ -11,21 +11,25 @@ public class Customer {
     private String name;
     private final String email;
     private String role;
+    private CustomerTier tier;
     private Password currentPassword;
     private final List<Password> passwordHistory;
 
-    public Customer(CustomerId id, String name, String email, String role,
+    public Customer(CustomerId id, String name, String email, String role, CustomerTier tier,
                     Password currentPassword, List<Password> passwordHistory) {
+        if (tier == null) throw new IllegalArgumentException("Tier must not be null");
         this.id = id;
         this.name = name;
         this.email = email;
         this.role = role;
+        this.tier = tier;
         this.currentPassword = currentPassword;
         this.passwordHistory = new ArrayList<>(passwordHistory);
     }
 
     public static Customer create(String name, String email, Password initialPassword) {
-        return new Customer(CustomerId.generate(), name, email, "CUSTOMER", initialPassword, new ArrayList<>());
+        return new Customer(CustomerId.generate(), name, email, "CUSTOMER", CustomerTier.STANDARD,
+                initialPassword, new ArrayList<>());
     }
 
     /**
@@ -40,6 +44,11 @@ public class Customer {
         this.currentPassword = newPassword;
     }
 
+    public void changeTier(CustomerTier newTier) {
+        if (newTier == null) throw new IllegalArgumentException("Tier must not be null");
+        this.tier = newTier;
+    }
+
     /** Returns current + history — all hashes to check against for reuse. */
     public List<Password> getAllPasswordsForReuseCheck() {
         List<Password> all = new ArrayList<>();
@@ -52,6 +61,7 @@ public class Customer {
     public String getName() { return name; }
     public String getEmail() { return email; }
     public String getRole() { return role; }
+    public CustomerTier getTier() { return tier; }
     public Password getCurrentPassword() { return currentPassword; }
     public List<Password> getPasswordHistory() { return Collections.unmodifiableList(passwordHistory); }
 }
