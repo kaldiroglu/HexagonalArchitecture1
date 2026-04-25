@@ -78,6 +78,7 @@ public final class TimeDepositAccount extends Account {
     }
 
     public Transaction mature(LocalDate today) {
+        // FROZEN accounts can still mature: maturation is a date-driven system action.
         if (status == AccountStatus.CLOSED)
             throw new IllegalStateException("Cannot mature a closed account");
         if (matured)
@@ -86,6 +87,7 @@ public final class TimeDepositAccount extends Account {
             throw new IllegalStateException("Maturity date not yet reached");
         long months = ChronoUnit.MONTHS.between(openedOn, maturityDate);
         BigDecimal years = BigDecimal.valueOf(months).divide(BigDecimal.valueOf(12), 10, RoundingMode.HALF_UP);
+        // Final rounding to 2 decimal places is applied by Money.multiply.
         Money interest = principal.multiply(annualInterestRate.multiply(years));
         this.balance = this.balance.add(interest);
         this.matured = true;

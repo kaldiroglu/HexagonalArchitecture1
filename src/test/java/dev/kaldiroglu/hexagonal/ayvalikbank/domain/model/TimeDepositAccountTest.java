@@ -78,6 +78,16 @@ class TimeDepositAccountTest {
     }
 
     @Test
+    void shouldMatureWhenFrozen() {
+        TimeDepositAccount account = openOneYearUsdDeposit();
+        account.freeze();
+        Transaction tx = account.mature(LocalDate.of(2027, 4, 1));
+        assertThat(tx.getType()).isEqualTo(TransactionType.INTEREST);
+        assertThat(account.isMatured()).isTrue();
+        assertThat(account.getStatus()).isEqualTo(AccountStatus.FROZEN);
+    }
+
+    @Test
     void shouldRejectMaturationOnClosedAccount() {
         TimeDepositAccount account = openOneYearUsdDeposit();
         account.close();
