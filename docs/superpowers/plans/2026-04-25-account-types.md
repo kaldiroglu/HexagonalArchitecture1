@@ -84,11 +84,11 @@ The user has uncommitted edits to `CLAUDE.md`, `Tests.md`, and `pom.xml` on `mas
 
 Run:
 ```bash
-git -C /Users/akin/Development/Claude/AyvalikBankHA1 worktree add ../AyvalikBankHA1-account-types -b account-types
-cd ../AyvalikBankHA1-account-types
+git -C /Users/akin/Development/Claude/AyvalikBankHA-JAVA worktree add ../AyvalikBankHA-JAVA-account-types -b account-types
+cd ../AyvalikBankHA-JAVA-account-types
 ```
 
-Expected: a new directory `../AyvalikBankHA1-account-types` on a fresh `account-types` branch.
+Expected: a new directory `../AyvalikBankHA-JAVA-account-types` on a fresh `account-types` branch.
 
 If the user prefers to skip the worktree and just create a branch in place, run `git checkout -b account-types` instead.
 
